@@ -3,7 +3,9 @@ package cmd
 import (
 	"fmt"
 	"os"
-	// "path/filepath"
+	"path/filepath"
+
+	// "gopkg.in/yaml.v3"
 
 	"github.com/spf13/cobra"
 
@@ -49,22 +51,83 @@ func launch(composePath, envFile string) error {
 		return err
 	}
 
+	// var cf compose.ComposeFile
+	// data, err := os.ReadFile(pathToUse)
+	// err = yaml.Unmarshal(data, &cf)
+	// if err != nil {
+	// 	return fmt.Errorf("unmarshalling compose file: %w", err)
+	// }
+
 	cf, err := compose.ParseCompose(pathToUse, env)
 	if err != nil {
 		return fmt.Errorf("parsing compose file: %w", err)
 	}
 
-	configPath := env["HOST_CONFIG_PATH"]
-	if configPath == "" {
+	hostConfigPath := env["HOST_CONFIG_PATH"]
+	if hostConfigPath == "" {
 		return fmt.Errorf("HOST_CONFIG_PATH is required to be set!")
 	}
 
+	internalConfigPath := env["INTERNAL_CONFIG_PATH"]
+	if internalConfigPath == "" {
+		return fmt.Errorf("INTERNAL_CONFIG_PATH is required to be set!")
+	}
+
+	mergedCompose := compose.RawCompose{
+		// "version":  "3.8",
+		"services": map[string]interface{}{},
+	}
+
+	rawCompose, err := cf.ToMap()
+	rawServices, ok := rawCompose["services"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("rawCompose does not contain a valid 'services' block")
+	}
+
 	for name, service := range cf.Services {
-		fmt.Printf("Extracting image for service: %s with corresponding image: %s\n", name, service.Image)
-		err := extractor.ExtractImage(service.Image, "darwin-"+name, configPath)
-		if err != nil {
-			return fmt.Errorf("failed to extract image %s: %w", service.Image, err)
+		image, ok := service["image"].(string)
+		if !ok {
+			return fmt.Errorf("image field not found or not a string for service: %s", name)
 		}
+
+		fmt.Printf("Extracting image for service: %s with corresponding image: %s\n", name, image)
+		image_id, err := extractor.ExtractImage(image, "darwin-"+name, hostConfigPath)
+		if err != nil {
+			return fmt.Errorf("failed to extract image %s: %w", image, err)
+		}
+
+		// now try to merge compose files
+		extractedComposePath := filepath.Join(internalConfigPath, "lib", "docker", image_id + ".yaml")
+		fmt.Printf("Extracted compose path: %s\n", extractedComposePath)
+		if _, err := os.Stat(extractedComposePath); err == nil {
+			extracted, err := compose.LoadRawYAML(extractedComposePath)
+			if err != nil {
+				return fmt.Errorf("parsing extracted compose for %s: %w", name, err)
+			}
+	
+			// Merge extracted into base
+			baseSvc := rawServices[name].(map[string]interface{})
+			merged := compose.MergeServiceConfigs(baseSvc, extracted)
+			mergedCompose["services"].(map[string]interface{})[name] = merged
+			fmt.Printf("Merged compose for %s with extracted compose\n", name)
+		} else {
+			// Just use the base service if no extracted fragment exists
+			mergedCompose["services"].(map[string]interface{})[name] = rawCompose[name]
+			fmt.Printf("No extracted compose found for %s, using base service\n", name)
+		}
+	}
+	
+	fmt.Printf("Merged compose file: %v\n", mergedCompose)
+
+	outputPath := filepath.Join(internalConfigPath, "lib", "compose", "merged-compose.yaml")
+	fmt.Printf("Writing merged compose file to: %s\n", outputPath)
+
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
+		return fmt.Errorf("creating output directory: %w", err)
+	}
+
+	if err := compose.SaveRawYAML(outputPath, mergedCompose); err != nil {
+		return fmt.Errorf("writing merged compose file: %w", err)
 	}
 
 	return nil
