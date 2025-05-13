@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"darwin_cli/internal/compose"
-	// "darwin_cli/internal/extractor"
+	"darwin_cli/internal/extractor"
 )
 
 func init() {
@@ -62,9 +62,9 @@ func launch(composePath, envFile string) error {
 	for name, service := range cf.Services {
 		fmt.Printf("Extracting image for service: %s with corresponding image: %s\n", name, service.Image)
 		err := extractor.ExtractImage(service.Image, "darwin-"+name, configPath)
-		// if err != nil {
-		// 	return fmt.Errorf("failed to extract image %s: %w", service.Image, err)
-		// }
+		if err != nil {
+			return fmt.Errorf("failed to extract image %s: %w", service.Image, err)
+		}
 	}
 
 	return nil
