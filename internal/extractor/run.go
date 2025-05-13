@@ -12,12 +12,10 @@ func ExtractImage(image, containerName, configPath string) (string, error) {
 	libPath := filepath.Join(configPath, "lib")
 	exportScript := filepath.Join(configPath, "export.sh")
 
-	inspectCmd := exec.Command("docker", "inspect", "--format={{.Id}}", image)
-	output, err := inspectCmd.Output()
+	imageID, err := GetImageID(image)
 	if err != nil {
 		return "", fmt.Errorf("failed to get image ID: %w", err)
 	}
-	imageID := strings.TrimSpace(string(output))
 
 	cmd := exec.Command(
 		"docker", "run", "--rm",
@@ -34,4 +32,13 @@ func ExtractImage(image, containerName, configPath string) (string, error) {
 	cmd.Stderr = os.Stderr
 
 	return imageID, cmd.Run()
+}
+
+func GetImageID(image string) (string, error) {
+	inspectCmd := exec.Command("docker", "inspect", "--format={{.Id}}", image)
+	output, err := inspectCmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get image ID: %w", err)
+	}
+	return strings.TrimSpace(string(output)), nil
 }

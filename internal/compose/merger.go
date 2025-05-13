@@ -41,11 +41,13 @@ func LoadRawYAML(path string) (RawCompose, error) {
 	if err != nil {
 		return nil, err
 	}
-	var raw RawCompose
+
+	var raw map[string]interface{}
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return nil, err
 	}
-	return raw, nil
+
+	return RawCompose(raw), nil
 }
 
 // SaveRawYAML saves the final merged YAML to disk
