@@ -43,8 +43,7 @@ func ParseCompose(path string, env map[string]string) (*ComposeFile, error) {
 	}
 
 	// merge the common configs into the services
-	for name, service := range cf.Services {
-		fmt.Printf("Processing service: %s\n", name)
+	for _, service := range cf.Services {
 		if commonConfigName, exists := service["<<"]; exists {
 			// get the name of the common config being referenced
 			configName := commonConfigName.(string)

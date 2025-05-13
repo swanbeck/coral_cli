@@ -98,15 +98,15 @@ func launch(composePath, envFile string) error {
 			return fmt.Errorf("image field not found or not a string for service: %s", name)
 		}
 
-		fmt.Printf("Extracting image for service: %s with corresponding image: %s\n", name, image)
-		image_id, err := extractor.ExtractImage(image, "darwin-"+name, hostConfigPath)
+		fmt.Printf("Extracting image %s for service %s\n", image, name)
+		imageID, err := extractor.ExtractImage(image, "darwin-"+name, hostConfigPath)
 		if err != nil {
 			return fmt.Errorf("failed to extract image %s: %w", image, err)
 		}
+		fmt.Printf("Resolved image ID: %s\n", imageID)
 
 		// now try to merge compose files
-		extractedComposePath := filepath.Join(internalConfigPath, "lib", "docker", image_id + ".yaml")
-		fmt.Printf("Extracted compose path: %s\n", extractedComposePath)
+		extractedComposePath := filepath.Join(internalConfigPath, "lib", "docker", imageID + ".yaml")
 		if _, err := os.Stat(extractedComposePath); err == nil {
 			extracted, err := compose.LoadRawYAML(extractedComposePath)
 			if err != nil {
@@ -117,16 +117,12 @@ func launch(composePath, envFile string) error {
 			baseSvc := rawServices[name].(map[string]interface{})
 			merged := compose.MergeServiceConfigs(baseSvc, extracted)
 			mergedCompose["services"].(map[string]interface{})[name] = merged
-			fmt.Printf("Merged compose for %s with extracted compose\n", name)
 		} else {
 			// just use the base service if no extracted fragment exists
 			mergedCompose["services"].(map[string]interface{})[name] = rawCompose[name]
-			fmt.Printf("No extracted compose found for %s, using base service\n", name)
 		}
 	}
 	
-	fmt.Printf("Merged compose file: %v\n", mergedCompose)
-
 	instanceName := fmt.Sprintf("darwin-%d", time.Now().UnixNano())
 
 	outputPath := filepath.Join(internalConfigPath, "lib", "compose", instanceName + ".yaml")
@@ -160,12 +156,6 @@ func launch(composePath, envFile string) error {
 		return fmt.Errorf("writing instance metadata: %w", err)
 	}
 
-	// now run the compose file (run in background if -d flag is set)
-	// startCmd := exec.Command("docker", "compose", "-f", outputPath, "up")
-	// startCmd.Stdout = os.Stdout
-	// startCmd.Stderr = os.Stderr
-	// startCmd.Run()
-
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
 
@@ -182,14 +172,15 @@ func launch(composePath, envFile string) error {
 	case <-signalChan:
 		fmt.Println("\nInterrupt received. Shutting down...")
 		stopCompose(outputPath)
-		removeInstanceFiles(outputPath, instanceName)
-		fmt.Println("All files cleaned up.")
+		// removeInstanceFiles(outputPath, instanceName)
+		fmt.Println("Done.")
 	case err := <-done:
 		if err != nil {
 			fmt.Printf("Docker Compose exited with error: %v\n", err)
 		}
 		stopCompose(outputPath)
-		removeInstanceFiles(outputPath, instanceName)
+		// removeInstanceFiles(outputPath, instanceName)
+		fmt.Println("Done.")
 	}
 
 	return nil
