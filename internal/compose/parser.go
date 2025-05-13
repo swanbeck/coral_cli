@@ -2,7 +2,6 @@ package compose
 
 import (
 	"fmt"
-	// "io/ioutil"
 	"os"
 	"regexp"
 
@@ -82,7 +81,6 @@ func mergeServiceConfig(service map[string]interface{}, commonConfig map[string]
 	}
 }
 
-// expand ${VAR} and $VAR in the string using env map
 func expandEnv(s string, env map[string]string) string {
 	// replace ${VAR}
 	re := regexp.MustCompile(`\$\{([^}]+)\}`)
