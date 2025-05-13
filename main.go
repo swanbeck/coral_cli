@@ -1,6 +1,6 @@
 package main
 
-import "darwin/cmd"
+import "darwin_cli/cmd"
 
 func main() {
 	cmd.Execute()
