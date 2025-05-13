@@ -9,13 +9,13 @@ import (
 	"os/exec"
 	"os/signal"
 	"syscall"
-	"strings"
-	"bufio"
 
 	"github.com/spf13/cobra"
 
+	"darwin_cli/internal/cleanup"
 	"darwin_cli/internal/compose"
 	"darwin_cli/internal/extractor"
+	"darwin_cli/internal/metadata"
 )
 
 func init() {
@@ -44,14 +44,14 @@ func init() {
 	launchCmd.Flags().StringVar(&deviceID, "device-id", "", "Optional device ID for this instance")
 }
 
-type InstanceMetadata struct {
-	Name        string `json:"name"`
-	ComposeFile string `json:"compose_file"`
-	CreatedAt   string `json:"created_at"`
-	ConfigPath  string `json:"config_path"`
-	Handle      string `json:"handle,omitempty"`
-	DeviceID    string `json:"device_id,omitempty"`
-}
+// type InstanceMetadata struct {
+// 	Name        string `json:"name"`
+// 	ComposeFile string `json:"compose_file"`
+// 	CreatedAt   string `json:"created_at"`
+// 	ConfigPath  string `json:"config_path"`
+// 	Handle      string `json:"handle,omitempty"`
+// 	DeviceID    string `json:"device_id,omitempty"`
+// }
 
 func launch(composePath, envFile string) error {
 	env := make(map[string]string)
@@ -146,7 +146,7 @@ func launch(composePath, envFile string) error {
 	}
 	storeDir := filepath.Join(home, ".darwin_cli", "instances")
 	os.MkdirAll(storeDir, 0755)
-	meta := InstanceMetadata{
+	meta := metadata.InstanceMetadata{
 		Name:        instanceName,
 		ComposeFile: outputPath,
 		CreatedAt:   time.Now().Format(time.RFC3339),
@@ -175,15 +175,15 @@ func launch(composePath, envFile string) error {
 	select {
 	case <-signalChan:
 		fmt.Println("\nInterrupt received. Shutting down...")
-		stopCompose(outputPath)
-		removeInstanceFiles(instanceName)
+		cleanup.StopCompose(outputPath)
+		cleanup.RemoveInstanceFiles(instanceName)
 		fmt.Println("Done.")
 	case err := <-done:
 		if err != nil {
 			fmt.Printf("Docker Compose exited with error: %v\n", err)
 		}
-		stopCompose(outputPath)
-		removeInstanceFiles(instanceName)
+		cleanup.StopCompose(outputPath)
+		cleanup.RemoveInstanceFiles(instanceName)
 		fmt.Println("Done.")
 	}
 
@@ -212,158 +212,4 @@ func resolveEnvFile(userPath string) (string, error) {
 	}
 	// just returning empty string if no .env file
 	return "", nil
-}
-
-func stopCompose(composePath string) {
-	fmt.Println("Stopping Compose...")
-	cmd := exec.Command("docker", "compose", "-f", composePath, "down")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	_ = cmd.Run()
-}
-
-func removeInstanceFiles(instanceName string) {
-	fmt.Println("Cleaning up instance files...")
-	
-	meta, metaPath, err := loadInstanceMetadata(instanceName)
-	if err != nil {
-		fmt.Printf("Error loading instance metadata: %v\n", err)
-	}
-	composeFile := meta.ComposeFile
-	configPath := meta.ConfigPath
-
-	fmt.Printf("Cleaning up files from config path %s with compose file %s\n", configPath, composeFile)
-
-	cleanupFromCompose(composeFile, configPath)
-	tryRemoveFileAndDirectory(composeFile)
-	tryRemoveFileAndDirectory(metaPath)
-}
-
-func cleanFilesFromLog(logPath, baseDir string) error {
-	file, err := os.Open(logPath)
-	if err != nil {
-		return fmt.Errorf("opening log file: %w", err)
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		relPath := strings.TrimSpace(scanner.Text())
-		if relPath == "./" || relPath == "" {
-			continue
-		}
-
-		absPath := filepath.Join(baseDir, relPath)
-
-		info, err := os.Stat(absPath)
-		if err != nil {
-			// skip non-existent files
-			continue
-		}
-
-		if info.IsDir() {
-			// try to remove if it's already a dir and empty
-			tryRemoveDirIfEmpty(absPath)
-		} else {
-			// remove file and possibly its parent
-			tryRemoveFileAndDirectory(absPath)
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("scanning log file: %w", err)
-	}
-	return nil
-}
-
-func tryRemoveFileAndDirectory(filePath string) bool {
-	if err := os.Remove(filePath); err != nil {
-		fmt.Printf("Failed to remove file %s: %v\n", filePath, err)
-		return false
-	}
-	dir := filepath.Dir(filePath)
-	return tryRemoveDirIfEmpty(dir)
-}
-
-func tryRemoveDirIfEmpty(dir string) bool {
-	entries, err := os.ReadDir(dir)
-	if err != nil || len(entries) > 0 {
-		return false
-	}
-	if err := os.Remove(dir); err != nil {
-		fmt.Printf("Failed to remove directory %s: %v\n", dir, err)
-		return false
-	}
-	return true
-}
-
-func cleanupFromCompose(composePath, internalConfigPath string) error {
-	rawCompose, err := compose.LoadRawYAML(composePath)
-	if err != nil {
-		return fmt.Errorf("loading compose: %w", err)
-	}
-
-	fmt.Printf("rawCompose: %#v\n", rawCompose)
-
-	services, ok := rawCompose["services"].(map[string]interface{})
-	if !ok {
-		return fmt.Errorf("compose file missing 'services'")
-	}
-
-	for name, svc := range services {
-		fmt.Printf("Cleaning up service: %s\n", name)
-		svcMap, ok := svc.(map[string]interface{})
-		if !ok {
-			continue
-		}
-
-		imageName, ok := svcMap["image"].(string)
-		if !ok || imageName == "" {
-			continue
-		}
-		fmt.Printf("Found image: %s for service: %s\n", imageName, name)
-
-		fmt.Printf("Cleaning up image: %s for service: %s\n", imageName, name)
-		
-		// get the image ID (to locate the extracted docker and log files)
-		imageID, err := extractor.GetImageID(imageName)
-		if err != nil {
-			fmt.Printf("Skipping cleanup for %s (could not resolve image ID): %v\n", name, err)
-			continue
-		}
-
-		// locate and clean up extracted files
-		dockerPath := filepath.Join(internalConfigPath, "lib", "docker", imageID + ".yaml")
-		logPath := filepath.Join(internalConfigPath, "lib", "logs", imageID + ".log")
-
-		fmt.Printf("Cleaning files for image ID: %s\n", imageID)
-		if err := cleanFilesFromLog(logPath, filepath.Join(internalConfigPath, "lib")); err != nil {
-			fmt.Printf("Error cleaning files for %s: %v\n", imageID, err)
-		}
-
-		tryRemoveFileAndDirectory(dockerPath)
-		tryRemoveFileAndDirectory(logPath)
-	}
-
-	return nil
-}
-
-func loadInstanceMetadata(instanceName string) (*InstanceMetadata, string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, "", fmt.Errorf("could not determine user home directory: %w", err)
-	}
-
-	metaPath := filepath.Join(home, ".darwin_cli", "instances", instanceName + ".json")
-	data, err := os.ReadFile(metaPath)
-	if err != nil {
-		return nil, "", fmt.Errorf("could not read metadata file: %w", err)
-	}
-
-	var meta InstanceMetadata
-	if err := json.Unmarshal(data, &meta); err != nil {
-		return nil, "", fmt.Errorf("could not unmarshal metadata: %w", err)
-	}
-
-	return &meta, metaPath, nil
 }

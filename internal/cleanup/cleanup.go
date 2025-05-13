@@ -1,0 +1,140 @@
+package cleanup
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"os/exec"
+	"strings"
+	"bufio"
+
+	"darwin_cli/internal/compose"
+	"darwin_cli/internal/extractor"
+	"darwin_cli/internal/metadata"
+)
+
+func StopCompose(composePath string) {
+	fmt.Println("Stopping Compose...")
+	cmd := exec.Command("docker", "compose", "-f", composePath, "down")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	_ = cmd.Run()
+}
+
+func RemoveInstanceFiles(instanceName string) {
+	fmt.Println("Cleaning up instance files...")
+	
+	meta, metaPath, err := metadata.LoadInstanceMetadata(instanceName)
+	if err != nil {
+		fmt.Printf("Error loading instance metadata: %v\n", err)
+	}
+	composeFile := meta.ComposeFile
+	configPath := meta.ConfigPath
+
+	cleanupFromCompose(composeFile, configPath)
+	tryRemoveFileAndDirectory(composeFile)
+	tryRemoveFileAndDirectory(metaPath)
+}
+
+func tryRemoveFileAndDirectory(filePath string) bool {
+	if err := os.Remove(filePath); err != nil {
+		fmt.Printf("Failed to remove file %s: %v\n", filePath, err)
+		return false
+	}
+	dir := filepath.Dir(filePath)
+	return tryRemoveDirIfEmpty(dir)
+}
+
+func tryRemoveDirIfEmpty(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) > 0 {
+		return false
+	}
+	if err := os.Remove(dir); err != nil {
+		fmt.Printf("Failed to remove directory %s: %v\n", dir, err)
+		return false
+	}
+	return true
+}
+
+func cleanFilesFromLog(logPath, baseDir string) error {
+	file, err := os.Open(logPath)
+	if err != nil {
+		return fmt.Errorf("opening log file: %w", err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		relPath := strings.TrimSpace(scanner.Text())
+		if relPath == "./" || relPath == "" {
+			continue
+		}
+
+		absPath := filepath.Join(baseDir, relPath)
+
+		info, err := os.Stat(absPath)
+		if err != nil {
+			// skip non-existent files
+			continue
+		}
+
+		if info.IsDir() {
+			// try to remove if it's already a dir and empty
+			tryRemoveDirIfEmpty(absPath)
+		} else {
+			// remove file and possibly its parent
+			tryRemoveFileAndDirectory(absPath)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("scanning log file: %w", err)
+	}
+	return nil
+}
+
+func cleanupFromCompose(composePath, internalConfigPath string) error {
+	rawCompose, err := compose.LoadRawYAML(composePath)
+	if err != nil {
+		return fmt.Errorf("loading compose: %w", err)
+	}
+
+	services, ok := rawCompose["services"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("compose file missing 'services'")
+	}
+
+	for name, svc := range services {
+		svcMap, ok := svc.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		imageName, ok := svcMap["image"].(string)
+		if !ok || imageName == "" {
+			continue
+		}
+		fmt.Printf("Found image %s for service %s\n", imageName, name)
+
+		// get the image ID (to locate the extracted docker and log files)
+		imageID, err := extractor.GetImageID(imageName)
+		if err != nil {
+			fmt.Printf("Skipping cleanup for %s (could not resolve image ID): %v\n", name, err)
+			continue
+		}
+
+		// locate and clean up extracted files
+		dockerPath := filepath.Join(internalConfigPath, "lib", "docker", imageID + ".yaml")
+		logPath := filepath.Join(internalConfigPath, "lib", "logs", imageID + ".log")
+
+		if err := cleanFilesFromLog(logPath, filepath.Join(internalConfigPath, "lib")); err != nil {
+			fmt.Printf("Error cleaning files for %s: %v\n", imageID, err)
+		}
+
+		tryRemoveFileAndDirectory(dockerPath)
+		tryRemoveFileAndDirectory(logPath)
+	}
+
+	return nil
+}
