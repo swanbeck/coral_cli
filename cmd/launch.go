@@ -19,37 +19,33 @@ import (
 	"darwin_cli/internal/metadata"
 )
 
-func init() {
-	rootCmd.AddCommand(launchCmd)
-}
-
 var (
-	composePath string
-	envFile     string
-	handle      string
-	deviceID    string
-	detached    bool
-	killLaunch  bool
+	launchComposePath string
+	launchEnvFile     string
+	launchHandle      string
+	launchGroup       string
+	launchDetached    bool
+	launchKill        bool
 )
+
+func init() {
+	launchCmd.Flags().StringVarP(&launchComposePath, "compose-file", "f", "", "Path to Docker Compose .yaml file")
+	launchCmd.Flags().StringVar(&launchEnvFile, "env-file", "", "Path to .env file")
+	launchCmd.Flags().StringVar(&launchHandle, "handle", "", "Optional handle for this instance")
+	launchCmd.Flags().StringVarP(&launchGroup, "group", "g", "", "Optional group for this instance")
+	launchCmd.Flags().BoolVarP(&launchDetached, "detached", "d", false, "Run in background (docker compose up -d)")
+	launchCmd.Flags().BoolVar(&launchKill, "kill", false, "Forcefully kills instances before removing them")
+}
 
 var launchCmd = &cobra.Command{
 	Use:   "launch",
 	Short: "Extract and run docker-compose services",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return launch(composePath, envFile)
+		return launch(launchComposePath, launchEnvFile, launchHandle, launchGroup, launchDetached, launchKill)
 	},
 }
 
-func init() {
-	launchCmd.Flags().StringVarP(&composePath, "compose-file", "f", "", "Path to Docker Compose .yaml file")
-	launchCmd.Flags().StringVarP(&envFile, "env-file", "e", "", "Path to .env file")
-	launchCmd.Flags().StringVar(&handle, "handle", "", "Optional handle for this instance")
-	launchCmd.Flags().StringVar(&deviceID, "device-id", "", "Optional device ID for this instance")
-	launchCmd.Flags().BoolVarP(&detached, "detached", "d", false, "Run in background (docker compose up -d)")
-	launchCmd.Flags().BoolVarP(&killLaunch, "kill", "k", false, "Forcefully kills instances before removing them")
-}
-
-func launch(composePath, envFile string) error {
+func launch(composePath, envFile string, handle string, group string, detached bool, kill bool) error {
 	env := make(map[string]string)
 	resolvedEnvFile, err := io.ResolveEnvFile(envFile)
 	if resolvedEnvFile != "" {
@@ -148,7 +144,7 @@ func launch(composePath, envFile string) error {
 		CreatedAt:   time.Now().Format(time.RFC3339),
 		ConfigPath:  internalConfigPath,
 		Handle:      handle,
-		DeviceID:    deviceID,
+		Group:       group,
 	}
 	data, _ := json.MarshalIndent(meta, "", "  ")
 	err = os.WriteFile(filepath.Join(storeDir, instanceName+".json"), data, 0644)
@@ -184,14 +180,14 @@ func launch(composePath, envFile string) error {
 	select {
 	case <-signalChan:
 		fmt.Println("\nInterrupt received. Shutting down...")
-		cleanup.StopCompose(outputPath, killLaunch)
+		cleanup.StopCompose(outputPath, kill)
 		cleanup.RemoveInstanceFiles(instanceName)
 		fmt.Println("Done.")
 	case err := <-done:
 		if err != nil {
 			fmt.Printf("Docker Compose exited with error: %v\n", err)
 		}
-		cleanup.StopCompose(outputPath, killLaunch)
+		cleanup.StopCompose(outputPath, kill)
 		cleanup.RemoveInstanceFiles(instanceName)
 		fmt.Println("Done.")
 	}

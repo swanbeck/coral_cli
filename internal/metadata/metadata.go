@@ -14,7 +14,7 @@ type InstanceMetadata struct {
 	CreatedAt   string `json:"created_at"`
 	ConfigPath  string `json:"config_path"`
 	Handle      string `json:"handle,omitempty"`
-	DeviceID    string `json:"device_id,omitempty"`
+	Group       string `json:"group,omitempty"`
 }
 
 func LoadInstanceMetadata(instanceName string) (*InstanceMetadata, string, error) {

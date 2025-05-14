@@ -19,13 +19,13 @@ var rootCmd = &cobra.Command{
 			_ = cmd.Help()
 			return
 		}
-
+		// we need to handle base docker commands (or commands we want to treat like docker commands but with extra pre- or post-processing) explictly so all flags are passed along to those docker commands rather than being parsed by cobra
 		switch args[0] {
 		case "images":
 			imagesCmd.Run(cmd, args[1:])
 		case "ps":
 			psCmd.Run(cmd, args[1:])
-		default: // forward everything else to docker
+		default: // forward everything else that didn't come here or get parsed by cobra to docker
 			runDockerCommand(args...)
 		}
 	},
@@ -50,4 +50,8 @@ func runDockerCommand(args ...string) {
 func init() {
 	// this makes the default docker behavior not work
 	// rootCmd.AddCommand(imagesCmd)
+
+	// these do not overload default docker commands so they belong here instead of above
+	rootCmd.AddCommand(launchCmd)
+	rootCmd.AddCommand(shutdownCmd)
 }

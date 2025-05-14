@@ -8,26 +8,23 @@ import (
 	"github.com/spf13/cobra"
 
 	"darwin_cli/internal/cleanup"
-	// "darwin_cli/internal/io"
 	"darwin_cli/internal/metadata"
 )
 
 var (
 	shutdownComposeFile string
 	shutdownHandle      string
-	shutdownDeviceID    string
+	shutdownGroup       string
 	shutdownAll	        bool
-	killShutdown        bool
+	shutdownKill        bool
 )
 
 func init() {
-	rootCmd.AddCommand(shutdownCmd)
-
 	shutdownCmd.Flags().StringVarP(&shutdownComposeFile, "compose-file", "f", "", "Path to Docker Compose file")
 	shutdownCmd.Flags().StringVar(&shutdownHandle, "handle", "", "Handle to shut down")
-	shutdownCmd.Flags().StringVar(&shutdownDeviceID, "device-id", "", "Device ID to shut down")
+	shutdownCmd.Flags().StringVarP(&shutdownGroup, "group", "g", "", "Group to shut down")
 	shutdownCmd.Flags().BoolVarP(&shutdownAll, "all", "a", false, "Shut down all instances")
-	shutdownCmd.Flags().BoolVarP(&killShutdown, "kill", "k", false, "Forcefully kills instances before removing them")
+	shutdownCmd.Flags().BoolVar(&shutdownKill, "kill", false, "Forcefully kills instances before removing them")
 }
 
 var shutdownCmd = &cobra.Command{
@@ -35,18 +32,18 @@ var shutdownCmd = &cobra.Command{
 	Short: "Stop and remove resources for a given instance",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if shutdownAll {
-			return shutdownAllInstances(killShutdown)
+			return shutdownAllInstances(shutdownKill)
 		}
 		if shutdownComposeFile != "" {
-			return shutdownByComposeFile(shutdownComposeFile, killShutdown)
+			return shutdownByComposeFile(shutdownComposeFile, shutdownKill)
 		}
 		if shutdownHandle != "" {
-			return shutdownByHandle(shutdownHandle, killShutdown)
+			return shutdownByHandle(shutdownHandle, shutdownKill)
 		}
-		if shutdownDeviceID != "" {
-			return shutdownByDeviceID(shutdownDeviceID, killShutdown)
+		if shutdownGroup != "" {
+			return shutdownByGroup(shutdownGroup, shutdownKill)
 		}
-		return fmt.Errorf("no shutdown criteria provided: use --compose-file, --handle, or --device-id")
+		return fmt.Errorf("no shutdown criteria provided: use --compose-file, --handle, or --group")
 	},
 }
 
@@ -103,7 +100,7 @@ func shutdownByHandle(handle string, kill bool) error {
 	return fmt.Errorf("no instance found with handle: %s", handle)
 }
 
-func shutdownByDeviceID(deviceID string, kill bool) error {
+func shutdownByGroup(group string, kill bool) error {
 	metadataList, err := metadata.LoadAllMetadata()
 	if err != nil {
 		return err
@@ -111,9 +108,9 @@ func shutdownByDeviceID(deviceID string, kill bool) error {
 
 	found := false
 	for _, meta := range metadataList {
-		if meta.DeviceID == deviceID {
+		if meta.Group == group {
 			found = true
-			fmt.Printf("Shutting down instance with device-id %s\n", deviceID)
+			fmt.Printf("Shutting down instance with group %s\n", group)
 			if err := cleanup.StopCompose(meta.ComposeFile, kill); err != nil {
 				fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
 			}
@@ -123,7 +120,7 @@ func shutdownByDeviceID(deviceID string, kill bool) error {
 		}
 	}
 	if !found {
-		return fmt.Errorf("no instances found with device-id: %s", deviceID)
+		return fmt.Errorf("no instances found with group: %s", group)
 	}
 	return nil
 }
