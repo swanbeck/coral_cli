@@ -13,15 +13,23 @@ import (
 	"darwin_cli/internal/metadata"
 )
 
-func StopCompose(composePath string) {
+func StopCompose(composePath string, kill bool) error {
 	fmt.Println("Stopping Compose...")
+	if kill {
+		kill_cmd := exec.Command("docker", "compose", "-f", composePath, "kill")
+		kill_cmd.Stdout = os.Stdout
+		kill_cmd.Stderr = os.Stderr
+		if err := kill_cmd.Run(); err != nil {
+			return fmt.Errorf("killing compose: %w", err)
+		}
+	}
 	cmd := exec.Command("docker", "compose", "-f", composePath, "down")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	_ = cmd.Run()
+	return cmd.Run()
 }
 
-func RemoveInstanceFiles(instanceName string) {
+func RemoveInstanceFiles(instanceName string) error {
 	fmt.Println("Cleaning up instance files...")
 	
 	meta, metaPath, err := metadata.LoadInstanceMetadata(instanceName)
@@ -34,6 +42,8 @@ func RemoveInstanceFiles(instanceName string) {
 	cleanupFromCompose(composeFile, configPath)
 	tryRemoveFileAndDirectory(composeFile)
 	tryRemoveFileAndDirectory(metaPath)
+
+	return nil
 }
 
 func tryRemoveFileAndDirectory(filePath string) bool {

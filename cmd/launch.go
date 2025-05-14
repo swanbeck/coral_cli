@@ -15,6 +15,7 @@ import (
 	"darwin_cli/internal/cleanup"
 	"darwin_cli/internal/compose"
 	"darwin_cli/internal/extractor"
+	"darwin_cli/internal/io"
 	"darwin_cli/internal/metadata"
 )
 
@@ -27,6 +28,8 @@ var (
 	envFile     string
 	handle      string
 	deviceID    string
+	detached    bool
+	killLaunch  bool
 )
 
 var launchCmd = &cobra.Command{
@@ -42,20 +45,13 @@ func init() {
 	launchCmd.Flags().StringVarP(&envFile, "env-file", "e", "", "Path to .env file")
 	launchCmd.Flags().StringVar(&handle, "handle", "", "Optional handle for this instance")
 	launchCmd.Flags().StringVar(&deviceID, "device-id", "", "Optional device ID for this instance")
+	launchCmd.Flags().BoolVarP(&detached, "detached", "d", false, "Run in background (docker compose up -d)")
+	launchCmd.Flags().BoolVarP(&killLaunch, "kill", "k", false, "Forcefully kills instances before removing them")
 }
-
-// type InstanceMetadata struct {
-// 	Name        string `json:"name"`
-// 	ComposeFile string `json:"compose_file"`
-// 	CreatedAt   string `json:"created_at"`
-// 	ConfigPath  string `json:"config_path"`
-// 	Handle      string `json:"handle,omitempty"`
-// 	DeviceID    string `json:"device_id,omitempty"`
-// }
 
 func launch(composePath, envFile string) error {
 	env := make(map[string]string)
-	resolvedEnvFile, err := resolveEnvFile(envFile)
+	resolvedEnvFile, err := io.ResolveEnvFile(envFile)
 	if resolvedEnvFile != "" {
 		var err error
 		env, err = compose.LoadEnv(resolvedEnvFile)
@@ -64,7 +60,7 @@ func launch(composePath, envFile string) error {
 		}
 	}
 
-	pathToUse, err := resolveComposeFile(composePath)
+	pathToUse, err := io.ResolveComposeFile(composePath)
 	if err != nil {
 		return err
 	}
@@ -160,6 +156,19 @@ func launch(composePath, envFile string) error {
 		return fmt.Errorf("writing instance metadata: %w", err)
 	}
 
+	// detached mode
+	if detached {
+		fmt.Println("Running in detached mode...")
+		startCmd := exec.Command("docker", "compose", "-f", outputPath, "up", "-d")
+		startCmd.Stdout = os.Stdout
+		startCmd.Stderr = os.Stderr
+		if err := startCmd.Run(); err != nil {
+			return fmt.Errorf("failed to start docker compose in detached mode: %w", err)
+		}
+		return nil
+	}
+
+	// regular running mode
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
 
@@ -175,41 +184,17 @@ func launch(composePath, envFile string) error {
 	select {
 	case <-signalChan:
 		fmt.Println("\nInterrupt received. Shutting down...")
-		cleanup.StopCompose(outputPath)
+		cleanup.StopCompose(outputPath, killLaunch)
 		cleanup.RemoveInstanceFiles(instanceName)
 		fmt.Println("Done.")
 	case err := <-done:
 		if err != nil {
 			fmt.Printf("Docker Compose exited with error: %v\n", err)
 		}
-		cleanup.StopCompose(outputPath)
+		cleanup.StopCompose(outputPath, killLaunch)
 		cleanup.RemoveInstanceFiles(instanceName)
 		fmt.Println("Done.")
 	}
 
 	return nil
-}
-
-func resolveComposeFile(userPath string) (string, error) {
-	if userPath != "" {
-		return userPath, nil
-	}
-	candidates := []string{"docker-compose.yaml", "compose.yaml", "docker-compose.yml", "compose.yml"}
-	for _, f := range candidates {
-		if _, err := os.Stat(f); err == nil {
-			return f, nil
-		}
-	}
-	return "", fmt.Errorf("no compose file found (tried: docker-compose.yaml, compose.yaml, docker-compose.yml, compose.yml)")
-}
-
-func resolveEnvFile(userPath string) (string, error) {
-	if userPath != "" {
-		return userPath, nil
-	}
-	if _, err := os.Stat(".env"); err == nil {
-		return ".env", nil
-	}
-	// just returning empty string if no .env file
-	return "", nil
 }

@@ -3,6 +3,7 @@ package metadata
 import (
 	"fmt"
 	"os"
+	"strings"
 	"encoding/json"
 	"path/filepath"
 )
@@ -34,4 +35,33 @@ func LoadInstanceMetadata(instanceName string) (*InstanceMetadata, string, error
 	}
 
 	return &meta, metaPath, nil
+}
+
+func LoadAllMetadata() ([]InstanceMetadata, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("determining user home: %w", err)
+	}
+	dir := filepath.Join(home, ".darwin_cli", "instances")
+
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("reading metadata dir: %w", err)
+	}
+
+	var metadata []InstanceMetadata
+	for _, f := range files {
+		if !strings.HasSuffix(f.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, f.Name()))
+		if err != nil {
+			continue
+		}
+		var meta InstanceMetadata
+		if err := json.Unmarshal(data, &meta); err == nil {
+			metadata = append(metadata, meta)
+		}
+	}
+	return metadata, nil
 }
