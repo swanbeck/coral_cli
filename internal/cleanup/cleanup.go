@@ -13,17 +13,17 @@ import (
 	"darwin_cli/internal/metadata"
 )
 
-func StopCompose(composePath string, kill bool) error {
+func StopCompose(instanceName string, composePath string, kill bool) error {
 	fmt.Println("Stopping Compose...")
 	if kill {
-		kill_cmd := exec.Command("docker", "compose", "-f", composePath, "kill")
+		kill_cmd := exec.Command("docker", "compose", "-p", instanceName, "-f", composePath, "kill")
 		kill_cmd.Stdout = os.Stdout
 		kill_cmd.Stderr = os.Stderr
 		if err := kill_cmd.Run(); err != nil {
 			return fmt.Errorf("killing compose: %w", err)
 		}
 	}
-	cmd := exec.Command("docker", "compose", "-f", composePath, "down")
+	cmd := exec.Command("docker", "compose", "-p", instanceName, "-f", composePath, "down")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()

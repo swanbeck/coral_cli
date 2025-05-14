@@ -147,15 +147,16 @@ func launch(composePath, envFile string, handle string, group string, detached b
 		Group:       group,
 	}
 	data, _ := json.MarshalIndent(meta, "", "  ")
-	err = os.WriteFile(filepath.Join(storeDir, instanceName+".json"), data, 0644)
+	err = os.WriteFile(filepath.Join(storeDir, instanceName + ".json"), data, 0644)
 	if err != nil {
 		return fmt.Errorf("writing instance metadata: %w", err)
 	}
+	fmt.Printf("Starting instance with name: %s\n", instanceName)
 
 	// detached mode
 	if detached {
 		fmt.Println("Running in detached mode...")
-		startCmd := exec.Command("docker", "compose", "-f", outputPath, "up", "-d")
+		startCmd := exec.Command("docker", "compose", "-p", instanceName, "-f", outputPath, "up", "-d")
 		startCmd.Stdout = os.Stdout
 		startCmd.Stderr = os.Stderr
 		if err := startCmd.Run(); err != nil {
@@ -170,7 +171,7 @@ func launch(composePath, envFile string, handle string, group string, detached b
 
 	done := make(chan error, 1)
 	go func() {
-		startCmd := exec.Command("docker", "compose", "-f", outputPath, "up")
+		startCmd := exec.Command("docker", "compose", "-p", instanceName, "-f", outputPath, "up")
 		startCmd.Stdout = os.Stdout
 		startCmd.Stderr = os.Stderr
 		err := startCmd.Run()
@@ -180,14 +181,14 @@ func launch(composePath, envFile string, handle string, group string, detached b
 	select {
 	case <-signalChan:
 		fmt.Println("\nInterrupt received. Shutting down...")
-		cleanup.StopCompose(outputPath, kill)
+		cleanup.StopCompose(instanceName, outputPath, kill)
 		cleanup.RemoveInstanceFiles(instanceName)
 		fmt.Println("Done.")
 	case err := <-done:
 		if err != nil {
 			fmt.Printf("Docker Compose exited with error: %v\n", err)
 		}
-		cleanup.StopCompose(outputPath, kill)
+		cleanup.StopCompose(instanceName, outputPath, kill)
 		cleanup.RemoveInstanceFiles(instanceName)
 		fmt.Println("Done.")
 	}

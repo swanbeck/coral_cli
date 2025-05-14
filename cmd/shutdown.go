@@ -2,8 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"path/filepath"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -12,7 +10,7 @@ import (
 )
 
 var (
-	shutdownComposeFile string
+	shutdownName        string
 	shutdownHandle      string
 	shutdownGroup       string
 	shutdownAll	        bool
@@ -20,7 +18,7 @@ var (
 )
 
 func init() {
-	shutdownCmd.Flags().StringVarP(&shutdownComposeFile, "compose-file", "f", "", "Path to Docker Compose file")
+	shutdownCmd.Flags().StringVarP(&shutdownName, "name", "n", "", "Path to Docker Compose file")
 	shutdownCmd.Flags().StringVar(&shutdownHandle, "handle", "", "Handle to shut down")
 	shutdownCmd.Flags().StringVarP(&shutdownGroup, "group", "g", "", "Group to shut down")
 	shutdownCmd.Flags().BoolVarP(&shutdownAll, "all", "a", false, "Shut down all instances")
@@ -34,8 +32,8 @@ var shutdownCmd = &cobra.Command{
 		if shutdownAll {
 			return shutdownAllInstances(shutdownKill)
 		}
-		if shutdownComposeFile != "" {
-			return shutdownByComposeFile(shutdownComposeFile, shutdownKill)
+		if shutdownName != "" {
+			return shutdownByName(shutdownName, shutdownKill)
 		}
 		if shutdownHandle != "" {
 			return shutdownByHandle(shutdownHandle, shutdownKill)
@@ -60,7 +58,7 @@ func shutdownAllInstances(kill bool) error {
 
 	for _, meta := range metadataList {
 		fmt.Printf("Shutting down instance: %s\n", meta.Name)
-		if err := cleanup.StopCompose(meta.ComposeFile, kill); err != nil {
+		if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill); err != nil {
 			fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
 		}
 		if err := cleanup.RemoveInstanceFiles(meta.Name); err != nil {
@@ -72,14 +70,22 @@ func shutdownAllInstances(kill bool) error {
 	return nil
 }
 
-func shutdownByComposeFile(composePath string, kill bool) error {
-	fmt.Printf("Stopping compose: %s\n", composePath)
-	if err := cleanup.StopCompose(composePath, kill); err != nil {
-		return fmt.Errorf("stopping compose: %w", err)
+func shutdownByName(name string, kill bool) error {
+	metadataList, err := metadata.LoadAllMetadata()
+	if err != nil {
+		return err
 	}
 
-	instanceName := strings.TrimSuffix(filepath.Base(composePath), filepath.Ext(composePath))
-	return cleanup.RemoveInstanceFiles(instanceName)
+	for _, meta := range metadataList {
+		if meta.Name == name {
+			fmt.Printf("Shutting down instance with name %s\n", name)
+			if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill); err != nil {
+				fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
+			}
+			return cleanup.RemoveInstanceFiles(meta.Name)
+		}
+	}
+	return fmt.Errorf("no instance found with name: %s", name)
 }
 
 func shutdownByHandle(handle string, kill bool) error {
@@ -91,7 +97,7 @@ func shutdownByHandle(handle string, kill bool) error {
 	for _, meta := range metadataList {
 		if meta.Handle == handle {
 			fmt.Printf("Shutting down instance with handle %s\n", handle)
-			if err := cleanup.StopCompose(meta.ComposeFile, kill); err != nil {
+			if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill); err != nil {
 				fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
 			}
 			return cleanup.RemoveInstanceFiles(meta.Name)
@@ -111,7 +117,7 @@ func shutdownByGroup(group string, kill bool) error {
 		if meta.Group == group {
 			found = true
 			fmt.Printf("Shutting down instance with group %s\n", group)
-			if err := cleanup.StopCompose(meta.ComposeFile, kill); err != nil {
+			if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill); err != nil {
 				fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
 			}
 			if err := cleanup.RemoveInstanceFiles(meta.Name); err != nil {
