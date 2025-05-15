@@ -10,11 +10,11 @@ import (
 )
 
 var (
-	shutdownName        string
-	shutdownHandle      string
-	shutdownGroup       string
-	shutdownAll	        bool
-	shutdownKill        bool
+	shutdownName   string
+	shutdownHandle string
+	shutdownGroup  string
+	shutdownAll    bool
+	shutdownKill   bool
 )
 
 func init() {

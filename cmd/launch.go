@@ -1,14 +1,14 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
-	"time"
-	"encoding/json"
-	"path/filepath"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -48,6 +48,9 @@ var launchCmd = &cobra.Command{
 func launch(composePath, envFile string, handle string, group string, detached bool, kill bool) error {
 	env := make(map[string]string)
 	resolvedEnvFile, err := io.ResolveEnvFile(envFile)
+	if err != nil {
+		return fmt.Errorf("resolving env file: %w", err)
+	}
 	if resolvedEnvFile != "" {
 		var err error
 		env, err = compose.LoadEnv(resolvedEnvFile)
@@ -68,12 +71,12 @@ func launch(composePath, envFile string, handle string, group string, detached b
 
 	hostConfigPath := env["HOST_CONFIG_PATH"]
 	if hostConfigPath == "" {
-		return fmt.Errorf("HOST_CONFIG_PATH is required to be set!")
+		return fmt.Errorf("HOST_CONFIG_PATH is required to be set")
 	}
 
 	internalConfigPath := env["INTERNAL_CONFIG_PATH"]
 	if internalConfigPath == "" {
-		return fmt.Errorf("INTERNAL_CONFIG_PATH is required to be set!")
+		return fmt.Errorf("INTERNAL_CONFIG_PATH is required to be set")
 	}
 
 	mergedCompose := compose.RawCompose{
@@ -82,6 +85,9 @@ func launch(composePath, envFile string, handle string, group string, detached b
 	}
 
 	rawCompose, err := cf.ToMap()
+	if err != nil {
+		return fmt.Errorf("converting compose to raw map: %w", err)
+	}
 	rawServices, ok := rawCompose["services"].(map[string]interface{})
 	if !ok {
 		return fmt.Errorf("rawCompose does not contain a valid 'services' block")
@@ -94,20 +100,20 @@ func launch(composePath, envFile string, handle string, group string, detached b
 		}
 
 		fmt.Printf("Extracting image %s for service %s\n", image, name)
-		imageID, err := extractor.ExtractImage(image, "darwin-" + name, hostConfigPath)
+		imageID, err := extractor.ExtractImage(image, "darwin-"+name, hostConfigPath)
 		if err != nil {
 			return fmt.Errorf("failed to extract image %s: %w", image, err)
 		}
 		fmt.Printf("Resolved image ID: %s\n", imageID)
 
 		// now try to merge compose files
-		extractedComposePath := filepath.Join(internalConfigPath, "lib", "docker", imageID + ".yaml")
+		extractedComposePath := filepath.Join(internalConfigPath, "lib", "docker", imageID+".yaml")
 		if _, err := os.Stat(extractedComposePath); err == nil {
 			extracted, err := compose.LoadRawYAML(extractedComposePath)
 			if err != nil {
 				return fmt.Errorf("parsing extracted compose for %s: %w", name, err)
 			}
-	
+
 			// merge extracted into base
 			baseSvc := rawServices[name].(map[string]interface{})
 			merged := compose.MergeServiceConfigs(baseSvc, extracted)
@@ -117,10 +123,10 @@ func launch(composePath, envFile string, handle string, group string, detached b
 			mergedCompose["services"].(map[string]interface{})[name] = rawCompose[name]
 		}
 	}
-	
+
 	instanceName := fmt.Sprintf("darwin-%d", time.Now().UnixNano())
 
-	outputPath := filepath.Join(internalConfigPath, "lib", "compose", instanceName + ".yaml")
+	outputPath := filepath.Join(internalConfigPath, "lib", "compose", instanceName+".yaml")
 	fmt.Printf("Writing merged compose file to: %s\n", outputPath)
 
 	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
@@ -147,7 +153,7 @@ func launch(composePath, envFile string, handle string, group string, detached b
 		Group:       group,
 	}
 	data, _ := json.MarshalIndent(meta, "", "  ")
-	err = os.WriteFile(filepath.Join(storeDir, instanceName + ".json"), data, 0644)
+	err = os.WriteFile(filepath.Join(storeDir, instanceName+".json"), data, 0644)
 	if err != nil {
 		return fmt.Errorf("writing instance metadata: %w", err)
 	}

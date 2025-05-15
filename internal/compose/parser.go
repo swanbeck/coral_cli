@@ -9,7 +9,7 @@ import (
 )
 
 type ComposeFile struct {
-	Services map[string]map[string]interface{} `yaml:"services"`
+	Services      map[string]map[string]interface{} `yaml:"services"`
 	CommonConfigs map[string]map[string]interface{} `yaml:",inline"`
 }
 

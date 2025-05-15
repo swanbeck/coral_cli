@@ -1,12 +1,12 @@
 package cleanup
 
 import (
+	"bufio"
 	"fmt"
 	"os"
-	"path/filepath"
 	"os/exec"
+	"path/filepath"
 	"strings"
-	"bufio"
 
 	"darwin_cli/internal/compose"
 	"darwin_cli/internal/extractor"
@@ -31,7 +31,7 @@ func StopCompose(instanceName string, composePath string, kill bool) error {
 
 func RemoveInstanceFiles(instanceName string) error {
 	fmt.Println("Cleaning up instance files...")
-	
+
 	meta, metaPath, err := metadata.LoadInstanceMetadata(instanceName)
 	if err != nil {
 		fmt.Printf("Error loading instance metadata: %v\n", err)
@@ -135,8 +135,8 @@ func cleanupFromCompose(composePath, internalConfigPath string) error {
 		}
 
 		// locate and clean up extracted files
-		dockerPath := filepath.Join(internalConfigPath, "lib", "docker", imageID + ".yaml")
-		logPath := filepath.Join(internalConfigPath, "lib", "logs", imageID + ".log")
+		dockerPath := filepath.Join(internalConfigPath, "lib", "docker", imageID+".yaml")
+		logPath := filepath.Join(internalConfigPath, "lib", "logs", imageID+".log")
 
 		if err := cleanFilesFromLog(logPath, filepath.Join(internalConfigPath, "lib")); err != nil {
 			fmt.Printf("Error cleaning files for %s: %v\n", imageID, err)
