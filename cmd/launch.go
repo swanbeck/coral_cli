@@ -1,16 +1,20 @@
 package cmd
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
 	"darwin_cli/internal/cleanup"
@@ -46,6 +50,12 @@ var launchCmd = &cobra.Command{
 	},
 }
 
+type containerInfo struct {
+	ID      string
+	Name    string
+	Service string
+}
+
 func launch(composePath, envFile, handle, group string, detached, kill bool) error {
 	// load and resolve environment
 	env := make(map[string]string)
@@ -79,7 +89,7 @@ func launch(composePath, envFile, handle, group string, detached, kill bool) err
 	}
 
 	// process services
-	mergedCompose, profilesMap, err := buildMergedCompose(parsedCompose, env, hostConfigPath, internalConfigPath)
+	mergedCompose, profilesMap, err := buildMergedCompose(parsedCompose, hostConfigPath, internalConfigPath)
 	if err != nil {
 		return err
 	}
@@ -113,7 +123,7 @@ func launch(composePath, envFile, handle, group string, detached, kill bool) err
 	return runForeground(profiles, instanceName, outputPath, kill)
 }
 
-func buildMergedCompose(cf *compose.ComposeFile, env map[string]string, hostCfg, internalCfg string) (compose.RawCompose, map[string][]string, error) {
+func buildMergedCompose(cf *compose.ComposeFile, hostCfg, internalCfg string) (compose.RawCompose, map[string][]string, error) {
 	rawCompose, err := cf.ToMap()
 	if err != nil {
 		return nil, nil, fmt.Errorf("converting to raw: %w", err)
@@ -252,346 +262,153 @@ func runDetached(profiles []string, instanceName, composePath string) error {
 func runForeground(profiles []string, instanceName, composePath string, kill bool) error {
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
-	done := make(chan error, 1)
 
-	go func() {
-		// start all profiles with up -d
-		for _, profile := range profiles {
-			if profile == "executors" {
-				fmt.Println("Delaying before starting executors...")
-				time.Sleep(1 * time.Second)
-			}
-			fmt.Printf("Starting profile '%s'...\n", profile)
-			cmd := exec.Command("docker", "compose", "-p", instanceName, "-f", composePath, "--profile", profile, "up", "-d")
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			if err := cmd.Run(); err != nil {
-				done <- fmt.Errorf("failed to start profile '%s': %w", profile, err)
-				return
-			}
+	// start all profiles detached
+	for _, profile := range profiles {
+		if profile == "executors" {
+			fmt.Println("Delaying before starting executors...")
+			time.Sleep(1 * time.Second)
 		}
-
-		// attach to logs to keep the process running
-		fmt.Println("Attaching to logs (non-detached mode)...")
-		args := []string{"compose", "-p", instanceName, "-f", composePath}
-		for _, profile := range profiles {
-			args = append(args, "--profile", profile)
-		}
-		args = append(args, "up")
-		cmd := exec.Command("docker", args...)
+		fmt.Printf("Starting profile '%s'...\n", profile)
+		cmd := exec.Command("docker", "compose", "-p", instanceName, "-f", composePath, "--profile", profile, "up", "-d")
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
-			done <- fmt.Errorf("error during log streaming: %w", err)
-			return
+			return fmt.Errorf("failed to start profile '%s': %w", profile, err)
+		}
+	}
+
+	// get all container IDs in the project
+	fmt.Println("Fetching container list...")
+	args := []string{"compose", "-p", instanceName, "-f", composePath, "ps", "-q"}
+	out, err := exec.Command("docker", args...).Output()
+	if err != nil {
+		return fmt.Errorf("failed to get container IDs: %w", err)
+	}
+	containerIDs := strings.Fields(string(out))
+	if len(containerIDs) == 0 {
+		return fmt.Errorf("no containers found for instance %s", instanceName)
+	}
+
+	// inspect containers to get service names
+	prefix := instanceName + "-"
+	suffixRegex := regexp.MustCompile(`-\d+$`)
+	var containers []containerInfo
+	for _, id := range containerIDs {
+		nameOut, err := exec.Command("docker", "inspect", "-f", "{{.Name}}", id).Output()
+		if err != nil {
+			return fmt.Errorf("failed to inspect container %s: %w", id, err)
+		}
+		fullName := strings.Trim(strings.TrimSpace(string(nameOut)), "/") // e.g. "darwin-...-payload_manager-1"
+		serviceName := fullName
+		if strings.HasPrefix(fullName, prefix) {
+			serviceName = fullName[len(prefix):]
+		}
+		serviceName = suffixRegex.ReplaceAllString(serviceName, "")
+
+		containers = append(containers, containerInfo{
+			ID:      id,
+			Name:    fullName,
+			Service: serviceName,
+		})
+	}
+
+	// create color palette
+	colors := []color.Attribute{
+		color.FgHiRed,
+		color.FgHiGreen,
+		color.FgHiYellow,
+		color.FgHiBlue,
+		color.FgHiMagenta,
+		color.FgHiCyan,
+	}
+	colorMap := make(map[string]*color.Color)
+	colorIndex := 0
+
+	// mutex to avoid interleaved output
+	var printMu sync.Mutex
+
+	// start tailing logs from all containers concurrently
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(containers))
+
+	for _, c := range containers {
+		wg.Add(1)
+
+		// assign color to service prefix (reuse if exists)
+		clr, exists := colorMap[c.Service]
+		if !exists {
+			clr = color.New(colors[colorIndex%len(colors)]).Add(color.Bold)
+			colorMap[c.Service] = clr
+			colorIndex++
 		}
 
-		done <- nil
-	}()
+		go func(c containerInfo, clr *color.Color) {
+			defer wg.Done()
 
-	// wait for signal or done
+			cmd := exec.Command("docker", "logs", "-f", c.ID)
+			stdout, err := cmd.StdoutPipe()
+			if err != nil {
+				errCh <- fmt.Errorf("failed to get stdout for container %s: %w", c.Name, err)
+				return
+			}
+			stderr, err := cmd.StderrPipe()
+			if err != nil {
+				errCh <- fmt.Errorf("failed to get stderr for container %s: %w", c.Name, err)
+				return
+			}
+
+			if err := cmd.Start(); err != nil {
+				errCh <- fmt.Errorf("failed to start logs for container %s: %w", c.Name, err)
+				return
+			}
+
+			// Print lines from stdout
+			go func() {
+				scanner := bufio.NewScanner(stdout)
+				for scanner.Scan() {
+					line := scanner.Text()
+					printMu.Lock()
+					clr.Printf("%-20s | ", c.Service)
+					fmt.Println(line)
+					printMu.Unlock()
+				}
+			}()
+
+			// Print lines from stderr
+			go func() {
+				scanner := bufio.NewScanner(stderr)
+				for scanner.Scan() {
+					line := scanner.Text()
+					printMu.Lock()
+					clr.Printf("%-20s | ", c.Service)
+					fmt.Println(line)
+					printMu.Unlock()
+				}
+			}()
+
+			if err := cmd.Wait(); err != nil {
+				errCh <- fmt.Errorf("logs command exited for container %s: %w", c.Name, err)
+			}
+		}(c, clr)
+	}
+
+	// wait for termination signal or errors from any log goroutine
 	select {
 	case <-signalChan:
 		fmt.Println("\nInterrupt received. Shutting down...")
 		cleanup.StopCompose(instanceName, composePath, kill, profiles)
 		cleanup.RemoveInstanceFiles(instanceName)
 		fmt.Println("Done.")
-	case err := <-done:
-		if err != nil {
-			fmt.Printf("Docker Compose exited with error: %v\n", err)
-		}
+	case err := <-errCh:
+		fmt.Printf("Error while streaming logs: %v\n", err)
 		cleanup.StopCompose(instanceName, composePath, kill, profiles)
 		cleanup.RemoveInstanceFiles(instanceName)
 		fmt.Println("Done.")
 	}
 
+	// wait for all log tails to finish (if they ever do)
+	wg.Wait()
+
 	return nil
 }
-
-// func launch(composePath, envFile string, handle string, group string, detached bool, kill bool) error {
-// 	env := make(map[string]string)
-// 	resolvedEnvFile, err := io.ResolveEnvFile(envFile)
-// 	if err != nil {
-// 		return fmt.Errorf("resolving env file: %w", err)
-// 	}
-// 	if resolvedEnvFile != "" {
-// 		var err error
-// 		env, err = compose.LoadEnv(resolvedEnvFile)
-// 		if err != nil {
-// 			return fmt.Errorf("loading .env: %w", err)
-// 		}
-// 	}
-
-// 	pathToUse, err := io.ResolveComposeFile(composePath)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	cf, err := compose.ParseCompose(pathToUse, env)
-// 	if err != nil {
-// 		return fmt.Errorf("parsing compose file: %w", err)
-// 	}
-
-// 	hostConfigPath := env["HOST_CONFIG_PATH"]
-// 	if hostConfigPath == "" {
-// 		return fmt.Errorf("HOST_CONFIG_PATH is required to be set")
-// 	}
-
-// 	internalConfigPath := env["INTERNAL_CONFIG_PATH"]
-// 	if internalConfigPath == "" {
-// 		return fmt.Errorf("INTERNAL_CONFIG_PATH is required to be set")
-// 	}
-
-// 	mergedCompose := compose.RawCompose{
-// 		// "version":  "3.8",
-// 		"services": map[string]interface{}{},
-// 	}
-
-// 	rawCompose, err := cf.ToMap()
-// 	if err != nil {
-// 		return fmt.Errorf("converting compose to raw map: %w", err)
-// 	}
-// 	rawServices, ok := rawCompose["services"].(map[string]interface{})
-// 	if !ok {
-// 		return fmt.Errorf("rawCompose does not contain a valid 'services' block")
-// 	}
-
-// 	drivers := []string{}
-// 	skillsets := []string{}
-// 	executors := []string{}
-
-// 	for name, service := range cf.Services {
-// 		image, ok := service["image"].(string)
-// 		if !ok {
-// 			return fmt.Errorf("image field not found or not a string for service: %s", name)
-// 		}
-
-// 		profiles := []string{}
-// 		if rawProfiles, ok := service["profiles"]; ok {
-// 			switch p := rawProfiles.(type) {
-// 			case []interface{}:
-// 				for _, v := range p {
-// 					if s, ok := v.(string); ok {
-// 						profiles = append(profiles, s)
-// 					}
-// 				}
-// 			}
-// 		}
-
-// 		for _, p := range profiles {
-// 			if p == "drivers" {
-// 				drivers = append(drivers, name)
-// 			}
-// 			if p == "skillsets" {
-// 				skillsets = append(skillsets, name)
-// 			}
-// 			if p == "executors" {
-// 				executors = append(executors, name)
-// 			}
-// 		}
-
-// 		fmt.Printf("Extracting image %s for service %s\n", image, name)
-// 		imageID, err := extractor.ExtractImage(image, "darwin-"+name, hostConfigPath)
-// 		if err != nil {
-// 			return fmt.Errorf("failed to extract image %s: %w", image, err)
-// 		}
-// 		fmt.Printf("Resolved image ID: %s\n", imageID)
-
-// 		// now try to merge compose files
-// 		extractedComposePath := filepath.Join(internalConfigPath, "lib", "docker", imageID+".yaml")
-// 		if _, err := os.Stat(extractedComposePath); err == nil {
-// 			extracted, err := compose.LoadRawYAML(extractedComposePath)
-// 			if err != nil {
-// 				return fmt.Errorf("parsing extracted compose for %s: %w", name, err)
-// 			}
-
-// 			// merge extracted into base
-// 			baseSvc := rawServices[name].(map[string]interface{})
-// 			merged := compose.MergeServiceConfigs(baseSvc, extracted)
-// 			mergedCompose["services"].(map[string]interface{})[name] = merged
-// 		} else {
-// 			// just use the base service if no extracted fragment exists
-// 			mergedCompose["services"].(map[string]interface{})[name] = rawCompose[name]
-// 		}
-// 	}
-
-// 	instanceName := fmt.Sprintf("darwin-%d", time.Now().UnixNano())
-
-// 	outputPath := filepath.Join(internalConfigPath, "lib", "compose", instanceName+".yaml")
-// 	fmt.Printf("Writing merged compose file to: %s\n", outputPath)
-
-// 	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
-// 		return fmt.Errorf("creating output directory: %w", err)
-// 	}
-
-// 	if err := compose.SaveRawYAML(outputPath, mergedCompose); err != nil {
-// 		return fmt.Errorf("writing merged compose file: %w", err)
-// 	}
-
-// 	// log the instance metadata
-// 	home, err := os.UserHomeDir()
-// 	if err != nil {
-// 		return fmt.Errorf("could not determine user home directory: %w", err)
-// 	}
-// 	storeDir := filepath.Join(home, ".darwin_cli", "instances")
-// 	os.MkdirAll(storeDir, 0755)
-// 	meta := metadata.InstanceMetadata{
-// 		Name:        instanceName,
-// 		ComposeFile: outputPath,
-// 		CreatedAt:   time.Now().Format(time.RFC3339),
-// 		ConfigPath:  internalConfigPath,
-// 		Handle:      handle,
-// 		Group:       group,
-// 	}
-// 	data, _ := json.MarshalIndent(meta, "", "  ")
-// 	err = os.WriteFile(filepath.Join(storeDir, instanceName+".json"), data, 0644)
-// 	if err != nil {
-// 		return fmt.Errorf("writing instance metadata: %w", err)
-// 	}
-// 	fmt.Printf("Starting instance with name: %s\n", instanceName)
-
-// 	// check if the profiles are used
-// 	hasDrivers := len(drivers) > 0
-// 	hasSkillsets := len(skillsets) > 0
-// 	hasExecutors := len(executors) > 0
-
-// 	fmt.Printf("Drivers (%d): %v\n", len(drivers), drivers)
-// 	fmt.Printf("Skillsets (%d): %v\n", len(skillsets), skillsets)
-// 	fmt.Printf("Executors (%d): %v\n", len(executors), executors)
-
-// 	// detached mode
-// 	if detached {
-// 		fmt.Println("Running in detached mode...")
-
-// 		if hasDrivers {
-// 			fmt.Println("Starting drivers...")
-// 			upDrivers := exec.Command("docker", "compose", "-p", instanceName, "-f", outputPath, "--profile", "drivers", "up", "-d")
-// 			upDrivers.Stdout = os.Stdout
-// 			upDrivers.Stderr = os.Stderr
-// 			if err := upDrivers.Run(); err != nil {
-// 				return fmt.Errorf("failed to start drivers docker compose in detached mode: %w", err)
-// 			}
-// 		} else {
-// 			fmt.Println("No drivers profile found. Skipping...")
-// 		}
-
-// 		if hasSkillsets {
-// 			fmt.Println("Starting skillsets...")
-// 			upSkillsets := exec.Command("docker", "compose", "-p", instanceName, "-f", outputPath, "--profile", "skillsets", "up", "-d")
-// 			upSkillsets.Stdout = os.Stdout
-// 			upSkillsets.Stderr = os.Stderr
-// 			if err := upSkillsets.Run(); err != nil {
-// 				return fmt.Errorf("failed to start skillsets docker compose in detached mode: %w", err)
-// 			}
-// 		} else {
-// 			fmt.Println("No skillsets profile found. Skipping...")
-// 		}
-
-// 		if hasExecutors {
-// 			fmt.Println("Delaying before starting executors...")
-// 			time.Sleep(1 * time.Second)
-// 			fmt.Println("Starting executors...")
-// 			upExecutors := exec.Command("docker", "compose", "-p", instanceName, "-f", outputPath, "--profile", "executors", "up", "-d")
-// 			upExecutors.Stdout = os.Stdout
-// 			upExecutors.Stderr = os.Stderr
-// 			if err := upExecutors.Run(); err != nil {
-// 				return fmt.Errorf("failed to start executors docker compose in detached mode: %w", err)
-// 			}
-// 		} else {
-// 			fmt.Println("No executors profile found. Skipping...")
-// 		}
-
-// 		return nil
-// 	}
-
-// 	// regular running mode
-// 	signalChan := make(chan os.Signal, 1)
-// 	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
-
-// 	done := make(chan error, 1)
-// 	go func() {
-// 		var startErr error
-
-// 		if hasDrivers {
-// 			fmt.Println("Starting drivers...")
-// 			cmd := exec.Command("docker", "compose", "-p", instanceName, "-f", outputPath, "--profile", "drivers", "up", "-d")
-// 			cmd.Stdout = os.Stdout
-// 			cmd.Stderr = os.Stderr
-// 			if err := cmd.Run(); err != nil {
-// 				startErr = fmt.Errorf("failed to start drivers: %w", err)
-// 				done <- startErr
-// 				return
-// 			}
-// 		}
-
-// 		if hasSkillsets {
-// 			fmt.Println("Starting skillsets...")
-// 			cmd := exec.Command("docker", "compose", "-p", instanceName, "-f", outputPath, "--profile", "skillsets", "up", "-d")
-// 			cmd.Stdout = os.Stdout
-// 			cmd.Stderr = os.Stderr
-// 			if err := cmd.Run(); err != nil {
-// 				startErr = fmt.Errorf("failed to start skillsets: %w", err)
-// 				done <- startErr
-// 				return
-// 			}
-// 		}
-
-// 		if hasExecutors {
-// 			fmt.Println("Delaying before starting executors...")
-// 			time.Sleep(1 * time.Second)
-
-// 			fmt.Println("Starting executors...")
-// 			cmd := exec.Command("docker", "compose", "-p", instanceName, "-f", outputPath, "--profile", "executors", "up", "-d")
-// 			cmd.Stdout = os.Stdout
-// 			cmd.Stderr = os.Stderr
-// 			if err := cmd.Run(); err != nil {
-// 				startErr = fmt.Errorf("failed to start executors: %w", err)
-// 				done <- startErr
-// 				return
-// 			}
-// 		}
-
-// 		// call up with logs to attach to foreground
-// 		if !detached {
-// 			fmt.Println("Attaching to logs (non-detached mode)...")
-// 			args := []string{"compose", "-p", instanceName, "-f", outputPath}
-// 			if hasDrivers {
-// 				args = append(args, "--profile", "drivers")
-// 			}
-// 			if hasSkillsets {
-// 				args = append(args, "--profile", "skillsets")
-// 			}
-// 			if hasExecutors {
-// 				args = append(args, "--profile", "executors")
-// 			}
-// 			args = append(args, "up")
-// 			logCmd := exec.Command("docker", args...)
-// 			logCmd.Stdout = os.Stdout
-// 			logCmd.Stderr = os.Stderr
-// 			if err := logCmd.Run(); err != nil {
-// 				startErr = fmt.Errorf("error during log streaming: %w", err)
-// 				done <- startErr
-// 				return
-// 			}
-// 		}
-
-// 		done <- nil
-// 	}()
-
-// 	select {
-// 	case <-signalChan:
-// 		fmt.Println("\nInterrupt received. Shutting down...")
-// 		cleanup.StopCompose(instanceName, outputPath, kill)
-// 		cleanup.RemoveInstanceFiles(instanceName)
-// 		fmt.Println("Done.")
-// 	case err := <-done:
-// 		if err != nil {
-// 			fmt.Printf("Docker Compose exited with error: %v\n", err)
-// 		}
-// 		cleanup.StopCompose(instanceName, outputPath, kill)
-// 		cleanup.RemoveInstanceFiles(instanceName)
-// 		fmt.Println("Done.")
-// 	}
-
-// 	return nil
-// }

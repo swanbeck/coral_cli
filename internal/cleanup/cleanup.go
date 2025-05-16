@@ -22,8 +22,8 @@ func StopCompose(instanceName string, composePath string, kill bool, profiles []
 	}
 
 	if kill {
-		args = append(args, "kill")
-		kill_cmd := exec.Command("docker", args...)
+		kill_args := append(args, "kill")
+		kill_cmd := exec.Command("docker", kill_args...)
 		kill_cmd.Stdout = os.Stdout
 		kill_cmd.Stderr = os.Stderr
 		if err := kill_cmd.Run(); err != nil {
