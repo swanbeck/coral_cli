@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"darwin_cli/internal/cleanup"
+	"darwin_cli/internal/compose"
 	"darwin_cli/internal/metadata"
 )
 
@@ -58,7 +59,12 @@ func shutdownAllInstances(kill bool) error {
 
 	for _, meta := range metadataList {
 		fmt.Printf("Shutting down instance: %s\n", meta.Name)
-		if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill); err != nil {
+		profiles, err := extractProfiles(meta.ComposeFile)
+		if err != nil {
+			fmt.Printf("Failed to extract profiles for %s: %v\n", meta.Name, err)
+			continue
+		}
+		if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill, profiles); err != nil {
 			fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
 		}
 		if err := cleanup.RemoveInstanceFiles(meta.Name); err != nil {
@@ -79,7 +85,12 @@ func shutdownByName(name string, kill bool) error {
 	for _, meta := range metadataList {
 		if meta.Name == name {
 			fmt.Printf("Shutting down instance with name %s\n", name)
-			if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill); err != nil {
+			profiles, err := extractProfiles(meta.ComposeFile)
+			if err != nil {
+				fmt.Printf("Failed to extract profiles for %s: %v\n", meta.Name, err)
+				continue
+			}
+			if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill, profiles); err != nil {
 				fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
 			}
 			return cleanup.RemoveInstanceFiles(meta.Name)
@@ -97,7 +108,12 @@ func shutdownByHandle(handle string, kill bool) error {
 	for _, meta := range metadataList {
 		if meta.Handle == handle {
 			fmt.Printf("Shutting down instance with handle %s\n", handle)
-			if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill); err != nil {
+			profiles, err := extractProfiles(meta.ComposeFile)
+			if err != nil {
+				fmt.Printf("Failed to extract profiles for %s: %v\n", meta.Name, err)
+				continue
+			}
+			if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill, profiles); err != nil {
 				fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
 			}
 			return cleanup.RemoveInstanceFiles(meta.Name)
@@ -117,7 +133,12 @@ func shutdownByGroup(group string, kill bool) error {
 		if meta.Group == group {
 			found = true
 			fmt.Printf("Shutting down instance with group %s\n", group)
-			if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill); err != nil {
+			profiles, err := extractProfiles(meta.ComposeFile)
+			if err != nil {
+				fmt.Printf("Failed to extract profiles for %s: %v\n", meta.Name, err)
+				continue
+			}
+			if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill, profiles); err != nil {
 				fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
 			}
 			if err := cleanup.RemoveInstanceFiles(meta.Name); err != nil {
@@ -129,4 +150,32 @@ func shutdownByGroup(group string, kill bool) error {
 		return fmt.Errorf("no instances found with group: %s", group)
 	}
 	return nil
+}
+
+func extractProfiles(composePath string) ([]string, error) {
+	env := map[string]string{}
+	cf, err := compose.ParseCompose(composePath, env)
+	if err != nil {
+		return nil, fmt.Errorf("parsing compose file for profile extraction: %w", err)
+	}
+
+	profileSet := make(map[string]struct{})
+	for _, svc := range cf.Services {
+		if rawProfiles, ok := svc["profiles"]; ok {
+			switch p := rawProfiles.(type) {
+			case []interface{}:
+				for _, val := range p {
+					if str, ok := val.(string); ok {
+						profileSet[str] = struct{}{}
+					}
+				}
+			}
+		}
+	}
+
+	var profiles []string
+	for p := range profileSet {
+		profiles = append(profiles, p)
+	}
+	return orderedProfiles(profiles), nil
 }
