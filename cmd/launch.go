@@ -27,33 +27,31 @@ import (
 )
 
 var (
-	launchComposePath          string
-	launchEnvFile              string
-	launchHandle               string
-	launchGroup                string
-	launchDetached             bool
-	launchKill                 bool
-	launchExecutorDelay        float32
-	launchExtractionEntrypoint string
+	launchComposePath   string
+	launchEnvFile       string
+	launchHandle        string
+	launchGroup         string
+	launchDetached      bool
+	launchKill          bool
+	launchExecutorDelay float32
 )
 
 //go:embed extract.sh
 var defaultExtractionEntryPoint embed.FS
 
 func init() {
-	launchCmd.Flags().StringVarP(&launchComposePath, "compose-file", "f", "", "Path to Docker Compose .yaml file to start services.")
-	launchCmd.Flags().StringVar(&launchEnvFile, "env-file", "", "Optional path to .env file to use for compose file substitutions.")
-	launchCmd.Flags().StringVar(&launchHandle, "handle", "", "Optional handle for this instance.")
-	launchCmd.Flags().StringVarP(&launchGroup, "group", "g", "darwin", "Optional group for this instance.")
-	launchCmd.Flags().BoolVarP(&launchDetached, "detached", "d", false, "Launch in detached mode.")
-	launchCmd.Flags().BoolVar(&launchKill, "kill", false, "Forcefully kills instances before removing them.")
-	launchCmd.Flags().Float32VarP(&launchExecutorDelay, "executor-delay", "q", 1.0, "Delay in seconds before starting executors. Used to provide small delay for drivers and skillsets to start before executors.")
-	launchCmd.Flags().StringVar(&launchExtractionEntrypoint, "extraction-entrypoint", "", "Path to the extraction entrypoint script. If not provided, a default embedded script will be used.")
+	launchCmd.Flags().StringVarP(&launchComposePath, "compose-file", "f", "", "Path to Docker Compose .yaml file to start services")
+	launchCmd.Flags().StringVar(&launchEnvFile, "env-file", "", "Optional path to .env file to use for compose file substitutions")
+	launchCmd.Flags().StringVar(&launchHandle, "handle", "", "Optional handle for this instance")
+	launchCmd.Flags().StringVarP(&launchGroup, "group", "g", "darwin", "Optional group for this instance")
+	launchCmd.Flags().BoolVarP(&launchDetached, "detached", "d", false, "Launch in detached mode")
+	launchCmd.Flags().BoolVar(&launchKill, "kill", false, "Forcefully kills instances before removing them")
+	launchCmd.Flags().Float32Var(&launchExecutorDelay, "executor-delay", 1.0, "Delay in seconds before starting executors; used to provide small delay for drivers and skillsets to start before executors")
 }
 
 var launchCmd = &cobra.Command{
 	Use:   "launch",
-	Short: "Extract and run docker-compose services",
+	Short: "Extract and run Darwin-compatible docker-compose services",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return launch(launchComposePath, launchEnvFile, launchHandle, launchGroup, launchDetached, launchKill, launchExecutorDelay)
 	},
@@ -102,38 +100,35 @@ func launch(composePath, envFile, handle, group string, detached, kill bool, exe
 		var ok bool
 		hostLibPath, ok = env["DARWIN_HOST_LIB"]
 		if !ok || strings.TrimSpace(hostLibPath) == "" {
-			return fmt.Errorf("environment variable DARWIN_HOST_LIB is required when running in Docker")
+			return fmt.Errorf("environment variable DARWIN_HOST_LIB is required when running in Docker; it should be an absolute path in the host filesystem that points to the Docker mounted LIB_PATH")
 		}
 	}
 
-	// process services
-	if launchExtractionEntrypoint == "" {
-		// need to pull from embedded extraction script
-		content, err := defaultExtractionEntryPoint.ReadFile("extract.sh")
-		if err != nil {
-			return fmt.Errorf("failed to read embedded script: %w", err)
-		}
-
-		launchExtractionEntrypoint = filepath.Join(libPath, "extract.sh")
-		if err := os.WriteFile(launchExtractionEntrypoint, content, 0755); err != nil {
-			return fmt.Errorf("failed to write temp script: %w", err)
-		}
-
-		// save the path that was written for deletion at end
-		deleteExtractionEntrypoint := launchExtractionEntrypoint
-		defer func() {
-			if err := os.Remove(deleteExtractionEntrypoint); err != nil {
-				fmt.Printf("failed to remove temp script: %v\n", err)
-			}
-		}()
-
-		// if docker, the entrypint must be provided wrt the host filesystem
-		if isDocker == "true" {
-			launchExtractionEntrypoint = filepath.Join(hostLibPath, "extract.sh")
-		}
+	// get embedded extraction script
+	content, err := defaultExtractionEntryPoint.ReadFile("extract.sh")
+	if err != nil {
+		return fmt.Errorf("failed to read embedded script: %w", err)
 	}
 
-	mergedCompose, profilesMap, err := buildMergedCompose(parsedCompose, libPath, hostLibPath, launchExtractionEntrypoint)
+	extractionEntrypoint := filepath.Join(libPath, "extract.sh")
+	if err := os.WriteFile(extractionEntrypoint, content, 0755); err != nil {
+		return fmt.Errorf("failed to write temp script: %w", err)
+	}
+
+	// save the path that was written for deletion at end
+	deleteExtractionEntrypoint := extractionEntrypoint
+	defer func() {
+		if err := os.Remove(deleteExtractionEntrypoint); err != nil {
+			fmt.Printf("failed to remove temp script: %v\n", err)
+		}
+	}()
+
+	// if docker, the entrypint must be provided wrt the host filesystem
+	if isDocker == "true" {
+		extractionEntrypoint = filepath.Join(hostLibPath, "extract.sh")
+	}
+
+	mergedCompose, profilesMap, err := buildMergedCompose(parsedCompose, libPath, hostLibPath, extractionEntrypoint)
 	if err != nil {
 		return err
 	}
