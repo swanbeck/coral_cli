@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/enescakir/emoji"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
@@ -25,12 +26,13 @@ import (
 )
 
 var (
-	launchComposePath string
-	launchEnvFile     string
-	launchHandle      string
-	launchGroup       string
-	launchDetached    bool
-	launchKill        bool
+	launchComposePath   string
+	launchEnvFile       string
+	launchHandle        string
+	launchGroup         string
+	launchDetached      bool
+	launchKill          bool
+	launchExecutorDelay float32
 )
 
 func init() {
@@ -40,13 +42,14 @@ func init() {
 	launchCmd.Flags().StringVarP(&launchGroup, "group", "g", "", "Optional group for this instance")
 	launchCmd.Flags().BoolVarP(&launchDetached, "detached", "d", false, "Run in background (docker compose up -d)")
 	launchCmd.Flags().BoolVar(&launchKill, "kill", false, "Forcefully kills instances before removing them")
+	launchCmd.Flags().Float32VarP(&launchExecutorDelay, "executor-delay", "q", 1.0, "Delay in seconds before starting executors")
 }
 
 var launchCmd = &cobra.Command{
 	Use:   "launch",
 	Short: "Extract and run docker-compose services",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return launch(launchComposePath, launchEnvFile, launchHandle, launchGroup, launchDetached, launchKill)
+		return launch(launchComposePath, launchEnvFile, launchHandle, launchGroup, launchDetached, launchKill, launchExecutorDelay)
 	},
 }
 
@@ -56,7 +59,7 @@ type containerInfo struct {
 	Service string
 }
 
-func launch(composePath, envFile, handle, group string, detached, kill bool) error {
+func launch(composePath, envFile, handle, group string, detached, kill bool, executorDelay float32) error {
 	// load and resolve environment
 	env := make(map[string]string)
 	resolvedEnvFile, err := io.ResolveEnvFile(envFile)
@@ -107,8 +110,8 @@ func launch(composePath, envFile, handle, group string, detached, kill bool) err
 		return err
 	}
 
-	fmt.Printf("Starting instance with name: %s\n", instanceName)
-	logProfileSummary(profilesMap)
+	fmt.Printf("%s Starting instance with name: %s\n", emoji.Rocket, instanceName)
+	// logProfileSummary(profilesMap)
 
 	profiles = orderedProfiles(profiles)
 
@@ -117,10 +120,10 @@ func launch(composePath, envFile, handle, group string, detached, kill bool) err
 	}
 
 	if detached {
-		return runDetached(profiles, instanceName, outputPath)
+		return runDetached(profiles, instanceName, outputPath, executorDelay, profilesMap)
 	}
 
-	return runForeground(profiles, instanceName, outputPath, kill)
+	return runForeground(profiles, instanceName, outputPath, kill, executorDelay, profilesMap)
 }
 
 func buildMergedCompose(cf *compose.ComposeFile, hostCfg, internalCfg string) (compose.RawCompose, map[string][]string, error) {
@@ -134,7 +137,7 @@ func buildMergedCompose(cf *compose.ComposeFile, hostCfg, internalCfg string) (c
 
 	for name, svc := range cf.Services {
 		image := svc["image"].(string)
-		fmt.Printf("Extracting image %s for service %s\n", image, name)
+		fmt.Printf("%s Extracting dependencies from image %s for service %s\n", emoji.Package, image, name)
 		imageID, err := extractor.ExtractImage(image, "darwin-"+name, hostCfg)
 		if err != nil {
 			return nil, nil, fmt.Errorf("extracting image: %w", err)
@@ -183,7 +186,7 @@ func extractProfileNames(profiles map[string][]string) []string {
 }
 
 func writeComposeToDisk(path string, compose_data compose.RawCompose) error {
-	fmt.Printf("Writing merged compose file to: %s\n", path)
+	fmt.Printf("%s Writing merged compose file to: %s\n", emoji.Memo, path)
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("creating output dir: %w", err)
 	}
@@ -204,12 +207,6 @@ func writeInstanceMetadata(instanceName, path, config, handle, group string) err
 	os.MkdirAll(storeDir, 0755)
 	data, _ := json.MarshalIndent(meta, "", "  ")
 	return os.WriteFile(filepath.Join(storeDir, instanceName+".json"), data, 0644)
-}
-
-func logProfileSummary(profiles map[string][]string) {
-	for name, services := range profiles {
-		fmt.Printf("%s (%d): %v\n", strings.Title(name), len(services), services)
-	}
 }
 
 func orderedProfiles(input []string) []string {
@@ -236,16 +233,22 @@ func orderedProfiles(input []string) []string {
 	return result
 }
 
-func runDetached(profiles []string, instanceName, composePath string) error {
-	fmt.Println("Running in detached mode...")
-
+func runDetached(profiles []string, instanceName, composePath string, executorDelay float32, profilesMap map[string][]string) error {
 	for _, profile := range profiles {
-		fmt.Printf("Starting profile '%s'...\n", profile)
+		symbol := emoji.Toolbox
+		if profile == "drivers" {
+			symbol = emoji.ElectricPlug
+		} else if profile == "skillsets" {
+			symbol = emoji.Toolbox
+		} else if profile == "executors" {
+			symbol = emoji.Gear + " "
+		}
+		fmt.Printf("%s Starting %s (%d): %v\n", symbol, profile, len(profilesMap[profile]), profilesMap[profile])
 
 		// optional delay before executors
 		if profile == "executors" {
-			fmt.Println("Delaying before starting executors...")
-			time.Sleep(1 * time.Second)
+			fmt.Printf("%s Delaying %.2fs before starting executors...\n", emoji.HourglassNotDone, executorDelay)
+			time.Sleep(time.Duration(executorDelay) * time.Second)
 		}
 
 		cmd := exec.Command("docker", "compose", "-p", instanceName, "-f", composePath, "--profile", profile, "up", "-d")
@@ -259,23 +262,14 @@ func runDetached(profiles []string, instanceName, composePath string) error {
 	return nil
 }
 
-func runForeground(profiles []string, instanceName, composePath string, kill bool) error {
+func runForeground(profiles []string, instanceName, composePath string, kill bool, executorDelay float32, profilesMap map[string][]string) error {
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
 
 	// start all profiles detached
-	for _, profile := range profiles {
-		if profile == "executors" {
-			fmt.Println("Delaying before starting executors...")
-			time.Sleep(1 * time.Second)
-		}
-		fmt.Printf("Starting profile '%s'...\n", profile)
-		cmd := exec.Command("docker", "compose", "-p", instanceName, "-f", composePath, "--profile", profile, "up", "-d")
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("failed to start profile '%s': %w", profile, err)
-		}
+	err := runDetached(profiles, instanceName, composePath, executorDelay, profilesMap)
+	if err != nil {
+		return fmt.Errorf("failed to start profiles in detached mode: %w", err)
 	}
 
 	// get all container IDs in the project
@@ -299,7 +293,7 @@ func runForeground(profiles []string, instanceName, composePath string, kill boo
 		if err != nil {
 			return fmt.Errorf("failed to inspect container %s: %w", id, err)
 		}
-		fullName := strings.Trim(strings.TrimSpace(string(nameOut)), "/") // e.g. "darwin-...-payload_manager-1"
+		fullName := strings.Trim(strings.TrimSpace(string(nameOut)), "/")
 		serviceName := fullName
 		if strings.HasPrefix(fullName, prefix) {
 			serviceName = fullName[len(prefix):]
@@ -363,7 +357,6 @@ func runForeground(profiles []string, instanceName, composePath string, kill boo
 				return
 			}
 
-			// Print lines from stdout
 			go func() {
 				scanner := bufio.NewScanner(stdout)
 				for scanner.Scan() {
@@ -375,7 +368,6 @@ func runForeground(profiles []string, instanceName, composePath string, kill boo
 				}
 			}()
 
-			// Print lines from stderr
 			go func() {
 				scanner := bufio.NewScanner(stderr)
 				for scanner.Scan() {
@@ -396,18 +388,20 @@ func runForeground(profiles []string, instanceName, composePath string, kill boo
 	// wait for termination signal or errors from any log goroutine
 	select {
 	case <-signalChan:
-		fmt.Println("\nInterrupt received. Shutting down...")
+		fmt.Printf("\n%s  Interrupt received. Shutting down...\n", emoji.Warning)
 		cleanup.StopCompose(instanceName, composePath, kill, profiles)
+		fmt.Printf("%s Cleaning up files for instance %s...\n", emoji.Broom, instanceName)
 		cleanup.RemoveInstanceFiles(instanceName)
-		fmt.Println("Done.")
+		fmt.Printf("%s Done.\n", emoji.CheckMarkButton)
 	case err := <-errCh:
 		fmt.Printf("Error while streaming logs: %v\n", err)
 		cleanup.StopCompose(instanceName, composePath, kill, profiles)
+		fmt.Printf("%s Cleaning up files for instance %s...\n", emoji.Broom, instanceName)
 		cleanup.RemoveInstanceFiles(instanceName)
-		fmt.Println("Done.")
+		fmt.Printf("%s Done.\n", emoji.CheckMarkButton)
 	}
 
-	// wait for all log tails to finish (if they ever do)
+	// wait for all log tails to finish
 	wg.Wait()
 
 	return nil

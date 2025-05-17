@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/enescakir/emoji"
 	"github.com/spf13/cobra"
 
 	"darwin_cli/internal/cleanup"
@@ -58,7 +59,7 @@ func shutdownAllInstances(kill bool) error {
 	}
 
 	for _, meta := range metadataList {
-		fmt.Printf("Shutting down instance: %s\n", meta.Name)
+		fmt.Printf("%s Shutting down instance %s...\n", emoji.CrossMark, meta.Name)
 		profiles, err := extractProfiles(meta.ComposeFile)
 		if err != nil {
 			fmt.Printf("Failed to extract profiles for %s: %v\n", meta.Name, err)
@@ -67,12 +68,13 @@ func shutdownAllInstances(kill bool) error {
 		if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill, profiles); err != nil {
 			fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
 		}
+		fmt.Printf("%s Cleaning up files for instance %s...\n", emoji.Broom, meta.Name)
 		if err := cleanup.RemoveInstanceFiles(meta.Name); err != nil {
 			fmt.Printf("Failed to remove files for %s: %v\n", meta.Name, err)
 		}
 	}
 
-	fmt.Println("All instances shut down.")
+	fmt.Printf("%s Done.\n", emoji.CheckMarkButton)
 	return nil
 }
 
@@ -84,7 +86,7 @@ func shutdownByName(name string, kill bool) error {
 
 	for _, meta := range metadataList {
 		if meta.Name == name {
-			fmt.Printf("Shutting down instance with name %s\n", name)
+			fmt.Printf("%s Shutting down instance %s...\n", emoji.CrossMark, meta.Name)
 			profiles, err := extractProfiles(meta.ComposeFile)
 			if err != nil {
 				fmt.Printf("Failed to extract profiles for %s: %v\n", meta.Name, err)
@@ -93,7 +95,11 @@ func shutdownByName(name string, kill bool) error {
 			if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill, profiles); err != nil {
 				fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
 			}
-			return cleanup.RemoveInstanceFiles(meta.Name)
+			fmt.Printf("%s Cleaning up files for instance %s...\n", emoji.Broom, meta.Name)
+			err = cleanup.RemoveInstanceFiles(meta.Name)
+			fmt.Printf("%s Done.\n", emoji.CheckMarkButton)
+			return err
+
 		}
 	}
 	return fmt.Errorf("no instance found with name: %s", name)
@@ -107,7 +113,7 @@ func shutdownByHandle(handle string, kill bool) error {
 
 	for _, meta := range metadataList {
 		if meta.Handle == handle {
-			fmt.Printf("Shutting down instance with handle %s\n", handle)
+			fmt.Printf("%s Shutting down instance %s with handle %s...\n", emoji.CrossMark, meta.Name, meta.Handle)
 			profiles, err := extractProfiles(meta.ComposeFile)
 			if err != nil {
 				fmt.Printf("Failed to extract profiles for %s: %v\n", meta.Name, err)
@@ -116,7 +122,10 @@ func shutdownByHandle(handle string, kill bool) error {
 			if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill, profiles); err != nil {
 				fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
 			}
-			return cleanup.RemoveInstanceFiles(meta.Name)
+			fmt.Printf("%s Cleaning up files for instance %s...\n", emoji.Broom, meta.Name)
+			err = cleanup.RemoveInstanceFiles(meta.Name)
+			fmt.Printf("%s Done.\n", emoji.CheckMarkButton)
+			return err
 		}
 	}
 	return fmt.Errorf("no instance found with handle: %s", handle)
@@ -132,7 +141,7 @@ func shutdownByGroup(group string, kill bool) error {
 	for _, meta := range metadataList {
 		if meta.Group == group {
 			found = true
-			fmt.Printf("Shutting down instance with group %s\n", group)
+			fmt.Printf("%s Shutting down instance %s with group %s...\n", emoji.CrossMark, meta.Name, meta.Group)
 			profiles, err := extractProfiles(meta.ComposeFile)
 			if err != nil {
 				fmt.Printf("Failed to extract profiles for %s: %v\n", meta.Name, err)
@@ -141,6 +150,7 @@ func shutdownByGroup(group string, kill bool) error {
 			if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill, profiles); err != nil {
 				fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
 			}
+			fmt.Printf("%s Cleaning up files for instance %s...\n", emoji.Broom, meta.Name)
 			if err := cleanup.RemoveInstanceFiles(meta.Name); err != nil {
 				fmt.Printf("Failed to remove files for %s: %v\n", meta.Name, err)
 			}
@@ -149,6 +159,7 @@ func shutdownByGroup(group string, kill bool) error {
 	if !found {
 		return fmt.Errorf("no instances found with group: %s", group)
 	}
+	fmt.Printf("%s Done.\n", emoji.CheckMarkButton)
 	return nil
 }
 

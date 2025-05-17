@@ -14,8 +14,6 @@ import (
 )
 
 func StopCompose(instanceName string, composePath string, kill bool, profiles []string) error {
-	fmt.Println("Stopping Compose...")
-
 	args := []string{"compose", "-p", instanceName, "-f", composePath}
 	for _, profile := range profiles {
 		args = append(args, "--profile", profile)
@@ -39,8 +37,6 @@ func StopCompose(instanceName string, composePath string, kill bool, profiles []
 }
 
 func RemoveInstanceFiles(instanceName string) error {
-	fmt.Println("Cleaning up instance files...")
-
 	meta, metaPath, err := metadata.LoadInstanceMetadata(instanceName)
 	if err != nil {
 		fmt.Printf("Error loading instance metadata: %v\n", err)
@@ -57,7 +53,7 @@ func RemoveInstanceFiles(instanceName string) error {
 
 func tryRemoveFileAndDirectory(filePath string) bool {
 	if err := os.Remove(filePath); err != nil {
-		fmt.Printf("Failed to remove file %s: %v\n", filePath, err)
+		// fmt.Printf("Failed to remove file %s: %v\n", filePath, err)
 		return false
 	}
 	dir := filepath.Dir(filePath)
@@ -134,7 +130,7 @@ func cleanupFromCompose(composePath, internalConfigPath string) error {
 		if !ok || imageName == "" {
 			continue
 		}
-		fmt.Printf("Found image %s for service %s\n", imageName, name)
+		// fmt.Printf("Found image %s for service %s\n", imageName, name)
 
 		// get the image ID (to locate the extracted docker and log files)
 		imageID, err := extractor.GetImageID(imageName)
