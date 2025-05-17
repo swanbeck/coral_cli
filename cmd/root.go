@@ -10,7 +10,7 @@ import (
 
 var rootCmd = &cobra.Command{
 	Use:   "darwin",
-	Short: "Darwin wraps Docker with enhanced behavior",
+	Short: "Darwin wraps Docker for the Darwin ecosystem",
 	// disable cobra's built-in subcommand parsing to allow darwin kill or anything like that that is not overwritten to directly call docker kill or whatever
 	DisableFlagParsing: true,
 	Args:               cobra.ArbitraryArgs,
@@ -54,4 +54,5 @@ func init() {
 	// these do not overload default docker commands so they belong here instead of above
 	rootCmd.AddCommand(launchCmd)
 	rootCmd.AddCommand(shutdownCmd)
+	rootCmd.AddCommand(verifyCmd)
 }

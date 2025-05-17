@@ -26,6 +26,9 @@ import (
 	"darwin_cli/internal/metadata"
 )
 
+//go:embed scripts/extract.sh
+var defaultExtractionEntrypoint embed.FS
+
 var (
 	launchComposePath   string
 	launchEnvFile       string
@@ -35,9 +38,6 @@ var (
 	launchKill          bool
 	launchExecutorDelay float32
 )
-
-//go:embed extract.sh
-var defaultExtractionEntryPoint embed.FS
 
 func init() {
 	launchCmd.Flags().StringVarP(&launchComposePath, "compose-file", "f", "", "Path to Docker Compose .yaml file to start services")
@@ -63,7 +63,7 @@ type containerInfo struct {
 	Service string
 }
 
-func launch(composePath, envFile, handle, group string, detached, kill bool, executorDelay float32) error {
+func launch(composePath string, envFile string, handle string, group string, detached, kill bool, executorDelay float32) error {
 	// load and resolve environment
 	env := make(map[string]string)
 	resolvedEnvFile, err := io.ResolveEnvFile(envFile)
@@ -105,7 +105,7 @@ func launch(composePath, envFile, handle, group string, detached, kill bool, exe
 	}
 
 	// get embedded extraction script
-	content, err := defaultExtractionEntryPoint.ReadFile("extract.sh")
+	content, err := defaultExtractionEntrypoint.ReadFile("scripts/extract.sh")
 	if err != nil {
 		return fmt.Errorf("failed to read embedded script: %w", err)
 	}
