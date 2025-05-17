@@ -39,7 +39,7 @@ func init() {
 	launchCmd.Flags().StringVarP(&launchComposePath, "compose-file", "f", "", "Path to Docker Compose .yaml file")
 	launchCmd.Flags().StringVar(&launchEnvFile, "env-file", "", "Path to .env file")
 	launchCmd.Flags().StringVar(&launchHandle, "handle", "", "Optional handle for this instance")
-	launchCmd.Flags().StringVarP(&launchGroup, "group", "g", "", "Optional group for this instance")
+	launchCmd.Flags().StringVarP(&launchGroup, "group", "g", "darwin", "Optional group for this instance")
 	launchCmd.Flags().BoolVarP(&launchDetached, "detached", "d", false, "Run in background (docker compose up -d)")
 	launchCmd.Flags().BoolVar(&launchKill, "kill", false, "Forcefully kills instances before removing them")
 	launchCmd.Flags().Float32VarP(&launchExecutorDelay, "executor-delay", "q", 1.0, "Delay in seconds before starting executors")
@@ -264,7 +264,7 @@ func runDetached(profiles []string, instanceName, composePath string, executorDe
 
 func runForeground(profiles []string, instanceName, composePath string, kill bool, executorDelay float32, profilesMap map[string][]string) error {
 	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(signalChan, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
 	// start all profiles detached
 	err := runDetached(profiles, instanceName, composePath, executorDelay, profilesMap)
@@ -273,7 +273,6 @@ func runForeground(profiles []string, instanceName, composePath string, kill boo
 	}
 
 	// get all container IDs in the project
-	fmt.Println("Fetching container list...")
 	args := []string{"compose", "-p", instanceName, "-f", composePath, "ps", "-q"}
 	out, err := exec.Command("docker", args...).Output()
 	if err != nil {
@@ -380,15 +379,65 @@ func runForeground(profiles []string, instanceName, composePath string, kill boo
 			}()
 
 			if err := cmd.Wait(); err != nil {
+				// Exit code 130 = SIGINT, which is expected from the docker logs on interrupt
+				if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 130 {
+					return // do not treat as error
+				}
 				errCh <- fmt.Errorf("logs command exited for container %s: %w", c.Name, err)
 			}
 		}(c, clr)
 	}
 
+	shutdownChan := make(chan struct{})
+	if !kill {
+		go func() {
+			var mu sync.Mutex
+			interruptCount := 0
+			gracePeriod := 2 * time.Second
+			timer := (*time.Timer)(nil)
+
+			for {
+				<-signalChan
+				mu.Lock()
+				interruptCount++
+				if interruptCount == 1 {
+					fmt.Printf("\n%s  Interrupt received. Press Ctrl+C again within %.0f seconds to force kill.\n", emoji.Warning, gracePeriod.Seconds())
+
+					timer = time.AfterFunc(gracePeriod, func() {
+						mu.Lock()
+						defer mu.Unlock()
+						if interruptCount == 1 {
+							// graceful shutdown
+							close(shutdownChan)
+						}
+					})
+				} else {
+					// force kill
+					fmt.Printf("\n%s Second interrupt received. Forcing shutdown...\n", emoji.CrossMark)
+					kill = true
+					if timer != nil {
+						timer.Stop()
+					}
+					close(shutdownChan)
+					mu.Unlock()
+					return
+				}
+				mu.Unlock()
+			}
+		}()
+	} else {
+		// if kill == true, exit on first signal
+		go func() {
+			<-signalChan
+			fmt.Printf("\n%s Interrupt received. Forcing shutdown...\n", emoji.CrossMark)
+			close(shutdownChan)
+		}()
+	}
+
 	// wait for termination signal or errors from any log goroutine
 	select {
-	case <-signalChan:
-		fmt.Printf("\n%s  Interrupt received. Shutting down...\n", emoji.Warning)
+	case <-shutdownChan:
+		// fmt.Printf("\n%s  Interrupt received. Shutting down...\n", emoji.Warning)
 		cleanup.StopCompose(instanceName, composePath, kill, profiles)
 		fmt.Printf("%s Cleaning up files for instance %s...\n", emoji.Broom, instanceName)
 		cleanup.RemoveInstanceFiles(instanceName)
