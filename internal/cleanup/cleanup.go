@@ -42,9 +42,9 @@ func RemoveInstanceFiles(instanceName string) error {
 		fmt.Printf("Error loading instance metadata: %v\n", err)
 	}
 	composeFile := meta.ComposeFile
-	configPath := meta.ConfigPath
+	libPath := meta.LibPath
 
-	cleanupFromCompose(composeFile, configPath)
+	cleanupFromCompose(composeFile, libPath)
 	tryRemoveFileAndDirectory(composeFile)
 	tryRemoveFileAndDirectory(metaPath)
 
@@ -109,7 +109,7 @@ func cleanFilesFromLog(logPath, baseDir string) error {
 	return nil
 }
 
-func cleanupFromCompose(composePath, internalConfigPath string) error {
+func cleanupFromCompose(composePath, libPath string) error {
 	rawCompose, err := compose.LoadRawYAML(composePath)
 	if err != nil {
 		return fmt.Errorf("loading compose: %w", err)
@@ -140,10 +140,10 @@ func cleanupFromCompose(composePath, internalConfigPath string) error {
 		}
 
 		// locate and clean up extracted files
-		dockerPath := filepath.Join(internalConfigPath, "lib", "docker", imageID+".yaml")
-		logPath := filepath.Join(internalConfigPath, "lib", "logs", imageID+".log")
+		dockerPath := filepath.Join(libPath, "docker", imageID+".yaml")
+		logPath := filepath.Join(libPath, "logs", imageID+".log")
 
-		if err := cleanFilesFromLog(logPath, filepath.Join(internalConfigPath, "lib")); err != nil {
+		if err := cleanFilesFromLog(logPath, libPath); err != nil {
 			fmt.Printf("Error cleaning files for %s: %v\n", imageID, err)
 		}
 

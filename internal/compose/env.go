@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// LoadEnv loads a .env file and merges with system environment variables
+// loads a .env file and merges with system environment variables
 func LoadEnv(envFile string) (map[string]string, error) {
 	env := map[string]string{}
 
@@ -19,17 +19,10 @@ func LoadEnv(envFile string) (map[string]string, error) {
 
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if line == "" || strings.HasPrefix(line, "#") {
-				continue
+			key, value, success := parseEnvLine(scanner.Text())
+			if success {
+				env[key] = value
 			}
-			parts := strings.SplitN(line, "=", 2)
-			if len(parts) != 2 {
-				continue
-			}
-			key := strings.TrimSpace(parts[0])
-			val := strings.TrimSpace(parts[1])
-			env[key] = val
 		}
 	}
 
@@ -44,4 +37,27 @@ func LoadEnv(envFile string) (map[string]string, error) {
 	}
 
 	return env, nil
+}
+
+func parseEnvLine(line string) (string, string, bool) {
+	line = strings.TrimSpace(line)
+	// remove commented lines and empty lines
+	if line == "" || strings.HasPrefix(line, "#") {
+		return "", "", false
+	}
+
+	// strip inline comments
+	if idx := strings.Index(line, "#"); idx != -1 {
+		line = strings.TrimSpace(line[:idx])
+	}
+
+	// split key and value
+	parts := strings.SplitN(line, "=", 2)
+	if len(parts) != 2 {
+		return "", "", false
+	}
+
+	key := strings.TrimSpace(parts[0])
+	value := strings.TrimSpace(parts[1])
+	return key, value, true
 }

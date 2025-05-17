@@ -4,14 +4,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 )
 
-func ExtractImage(image, containerName, configPath string) (string, error) {
-	libPath := filepath.Join(configPath, "lib")
-	exportScript := filepath.Join(configPath, "export.sh")
-
+func ExtractImage(image, containerName, libPath string, extractionEntrypoint string) (string, error) {
 	imageID, err := GetImageID(image)
 	if err != nil {
 		return "", fmt.Errorf("failed to get image ID: %w", err)
@@ -23,8 +19,8 @@ func ExtractImage(image, containerName, configPath string) (string, error) {
 		"-e", fmt.Sprintf("IMAGE_ID=%s", imageID),
 		"-e", "EXPORT_PATH=/export",
 		"-v", fmt.Sprintf("%s:/export", libPath),
-		"-v", fmt.Sprintf("%s:/export.sh", exportScript),
-		"--entrypoint", "/export.sh",
+		"-v", fmt.Sprintf("%s:/extract.sh", extractionEntrypoint),
+		"--entrypoint", "/extract.sh",
 		image,
 	)
 

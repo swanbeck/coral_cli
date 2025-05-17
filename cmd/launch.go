@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -26,23 +27,28 @@ import (
 )
 
 var (
-	launchComposePath   string
-	launchEnvFile       string
-	launchHandle        string
-	launchGroup         string
-	launchDetached      bool
-	launchKill          bool
-	launchExecutorDelay float32
+	launchComposePath          string
+	launchEnvFile              string
+	launchHandle               string
+	launchGroup                string
+	launchDetached             bool
+	launchKill                 bool
+	launchExecutorDelay        float32
+	launchExtractionEntrypoint string
 )
 
+//go:embed extract.sh
+var defaultExtractionEntryPoint embed.FS
+
 func init() {
-	launchCmd.Flags().StringVarP(&launchComposePath, "compose-file", "f", "", "Path to Docker Compose .yaml file")
-	launchCmd.Flags().StringVar(&launchEnvFile, "env-file", "", "Path to .env file")
-	launchCmd.Flags().StringVar(&launchHandle, "handle", "", "Optional handle for this instance")
-	launchCmd.Flags().StringVarP(&launchGroup, "group", "g", "darwin", "Optional group for this instance")
-	launchCmd.Flags().BoolVarP(&launchDetached, "detached", "d", false, "Run in background (docker compose up -d)")
-	launchCmd.Flags().BoolVar(&launchKill, "kill", false, "Forcefully kills instances before removing them")
-	launchCmd.Flags().Float32VarP(&launchExecutorDelay, "executor-delay", "q", 1.0, "Delay in seconds before starting executors")
+	launchCmd.Flags().StringVarP(&launchComposePath, "compose-file", "f", "", "Path to Docker Compose .yaml file to start services.")
+	launchCmd.Flags().StringVar(&launchEnvFile, "env-file", "", "Optional path to .env file to use for compose file substitutions.")
+	launchCmd.Flags().StringVar(&launchHandle, "handle", "", "Optional handle for this instance.")
+	launchCmd.Flags().StringVarP(&launchGroup, "group", "g", "darwin", "Optional group for this instance.")
+	launchCmd.Flags().BoolVarP(&launchDetached, "detached", "d", false, "Launch in detached mode.")
+	launchCmd.Flags().BoolVar(&launchKill, "kill", false, "Forcefully kills instances before removing them.")
+	launchCmd.Flags().Float32VarP(&launchExecutorDelay, "executor-delay", "q", 1.0, "Delay in seconds before starting executors. Used to provide small delay for drivers and skillsets to start before executors.")
+	launchCmd.Flags().StringVar(&launchExtractionEntrypoint, "extraction-entrypoint", "", "Path to the extraction entrypoint script. If not provided, a default embedded script will be used.")
 }
 
 var launchCmd = &cobra.Command{
@@ -85,14 +91,49 @@ func launch(composePath, envFile, handle, group string, detached, kill bool, exe
 	}
 
 	// validate required environment vars
-	hostConfigPath := env["HOST_CONFIG_PATH"]
-	internalConfigPath := env["INTERNAL_CONFIG_PATH"]
-	if hostConfigPath == "" || internalConfigPath == "" {
-		return fmt.Errorf("HOST_CONFIG_PATH and INTERNAL_CONFIG_PATH must be set")
+	libPath, ok := env["DARWIN_LIB"]
+	if !ok || strings.TrimSpace(libPath) == "" {
+		return fmt.Errorf("environment variable DARWIN_LIB is not set or empty")
+	}
+
+	isDocker := env["DARWIN_IS_DOCKER"]
+	var hostLibPath string
+	if isDocker == "true" {
+		var ok bool
+		hostLibPath, ok = env["DARWIN_HOST_LIB"]
+		if !ok || strings.TrimSpace(hostLibPath) == "" {
+			return fmt.Errorf("environment variable DARWIN_HOST_LIB is required when running in Docker")
+		}
 	}
 
 	// process services
-	mergedCompose, profilesMap, err := buildMergedCompose(parsedCompose, hostConfigPath, internalConfigPath)
+	if launchExtractionEntrypoint == "" {
+		// need to pull from embedded extraction script
+		content, err := defaultExtractionEntryPoint.ReadFile("extract.sh")
+		if err != nil {
+			return fmt.Errorf("failed to read embedded script: %w", err)
+		}
+
+		launchExtractionEntrypoint = filepath.Join(libPath, "extract.sh")
+		if err := os.WriteFile(launchExtractionEntrypoint, content, 0755); err != nil {
+			return fmt.Errorf("failed to write temp script: %w", err)
+		}
+
+		// save the path that was written for deletion at end
+		deleteExtractionEntrypoint := launchExtractionEntrypoint
+		defer func() {
+			if err := os.Remove(deleteExtractionEntrypoint); err != nil {
+				fmt.Printf("failed to remove temp script: %v\n", err)
+			}
+		}()
+
+		// if docker, the entrypint must be provided wrt the host filesystem
+		if isDocker == "true" {
+			launchExtractionEntrypoint = filepath.Join(hostLibPath, "extract.sh")
+		}
+	}
+
+	mergedCompose, profilesMap, err := buildMergedCompose(parsedCompose, libPath, hostLibPath, launchExtractionEntrypoint)
 	if err != nil {
 		return err
 	}
@@ -100,13 +141,13 @@ func launch(composePath, envFile, handle, group string, detached, kill bool, exe
 
 	// write merged compose
 	instanceName := fmt.Sprintf("darwin-%d", time.Now().UnixNano())
-	outputPath := filepath.Join(internalConfigPath, "lib", "compose", instanceName+".yaml")
+	outputPath := filepath.Join(libPath, "compose", instanceName+".yaml")
 	if err := writeComposeToDisk(outputPath, mergedCompose); err != nil {
 		return err
 	}
 
 	// log metadata
-	if err := writeInstanceMetadata(instanceName, outputPath, internalConfigPath, handle, group); err != nil {
+	if err := writeInstanceMetadata(instanceName, outputPath, libPath, handle, group); err != nil {
 		return err
 	}
 
@@ -126,7 +167,7 @@ func launch(composePath, envFile, handle, group string, detached, kill bool, exe
 	return runForeground(profiles, instanceName, outputPath, kill, executorDelay, profilesMap)
 }
 
-func buildMergedCompose(cf *compose.ComposeFile, hostCfg, internalCfg string) (compose.RawCompose, map[string][]string, error) {
+func buildMergedCompose(cf *compose.ComposeFile, lib string, hostLib string, extractionEntrypoint string) (compose.RawCompose, map[string][]string, error) {
 	rawCompose, err := cf.ToMap()
 	if err != nil {
 		return nil, nil, fmt.Errorf("converting to raw: %w", err)
@@ -135,10 +176,17 @@ func buildMergedCompose(cf *compose.ComposeFile, hostCfg, internalCfg string) (c
 	merged := compose.RawCompose{"services": map[string]interface{}{}}
 	profiles := map[string][]string{}
 
+	var imageLib string
+	if hostLib != "" {
+		imageLib = hostLib
+	} else {
+		imageLib = lib
+	}
+
 	for name, svc := range cf.Services {
 		image := svc["image"].(string)
 		fmt.Printf("%s Extracting dependencies from image %s for service %s\n", emoji.Package, image, name)
-		imageID, err := extractor.ExtractImage(image, "darwin-"+name, hostCfg)
+		imageID, err := extractor.ExtractImage(image, "darwin-"+name, imageLib, extractionEntrypoint)
 		if err != nil {
 			return nil, nil, fmt.Errorf("extracting image: %w", err)
 		}
@@ -148,7 +196,7 @@ func buildMergedCompose(cf *compose.ComposeFile, hostCfg, internalCfg string) (c
 			profiles[p] = append(profiles[p], name)
 		}
 
-		extractedPath := filepath.Join(internalCfg, "lib", "docker", imageID+".yaml")
+		extractedPath := filepath.Join(lib, "docker", imageID+".yaml")
 		if _, err := os.Stat(extractedPath); err == nil {
 			extracted, err := compose.LoadRawYAML(extractedPath)
 			if err != nil {
@@ -193,12 +241,12 @@ func writeComposeToDisk(path string, compose_data compose.RawCompose) error {
 	return compose.SaveRawYAML(path, compose_data)
 }
 
-func writeInstanceMetadata(instanceName, path, config, handle, group string) error {
+func writeInstanceMetadata(instanceName, path, lib, handle, group string) error {
 	meta := metadata.InstanceMetadata{
 		Name:        instanceName,
 		ComposeFile: path,
 		CreatedAt:   time.Now().Format(time.RFC3339),
-		ConfigPath:  config,
+		LibPath:     lib,
 		Handle:      handle,
 		Group:       group,
 	}
@@ -247,7 +295,7 @@ func runDetached(profiles []string, instanceName, composePath string, executorDe
 
 		// optional delay before executors
 		if profile == "executors" {
-			fmt.Printf("%s Delaying %.2fs before starting executors...\n", emoji.HourglassNotDone, executorDelay)
+			fmt.Printf("%s Delaying %.0fs before starting executors...\n", emoji.HourglassNotDone, executorDelay)
 			time.Sleep(time.Duration(executorDelay) * time.Second)
 		}
 
@@ -379,9 +427,9 @@ func runForeground(profiles []string, instanceName, composePath string, kill boo
 			}()
 
 			if err := cmd.Wait(); err != nil {
-				// Exit code 130 = SIGINT, which is expected from the docker logs on interrupt
+				// exit code 130 = SIGINT, which is expected from the docker logs on interrupt and we don't want to treat it as an error
 				if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 130 {
-					return // do not treat as error
+					return
 				}
 				errCh <- fmt.Errorf("logs command exited for container %s: %w", c.Name, err)
 			}
@@ -437,13 +485,12 @@ func runForeground(profiles []string, instanceName, composePath string, kill boo
 	// wait for termination signal or errors from any log goroutine
 	select {
 	case <-shutdownChan:
-		// fmt.Printf("\n%s  Interrupt received. Shutting down...\n", emoji.Warning)
 		cleanup.StopCompose(instanceName, composePath, kill, profiles)
 		fmt.Printf("%s Cleaning up files for instance %s...\n", emoji.Broom, instanceName)
 		cleanup.RemoveInstanceFiles(instanceName)
 		fmt.Printf("%s Done.\n", emoji.CheckMarkButton)
 	case err := <-errCh:
-		fmt.Printf("Error while streaming logs: %v\n", err)
+		fmt.Printf("%s  Error while streaming logs: %v\n", emoji.Warning, err)
 		cleanup.StopCompose(instanceName, composePath, kill, profiles)
 		fmt.Printf("%s Cleaning up files for instance %s...\n", emoji.Broom, instanceName)
 		cleanup.RemoveInstanceFiles(instanceName)

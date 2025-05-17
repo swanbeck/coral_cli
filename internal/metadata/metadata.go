@@ -12,7 +12,7 @@ type InstanceMetadata struct {
 	Name        string `json:"name"`
 	ComposeFile string `json:"compose_file"`
 	CreatedAt   string `json:"created_at"`
-	ConfigPath  string `json:"config_path"`
+	LibPath     string `json:"lib_path"`
 	Handle      string `json:"handle,omitempty"`
 	Group       string `json:"group,omitempty"`
 }
