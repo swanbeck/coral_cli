@@ -24,7 +24,7 @@ Verify it can be found with
 darwin
 ```
 which should print out
-```bash
+```
 Darwin wraps Docker for the Darwin ecosystem
 
 Usage:
@@ -136,7 +136,7 @@ darwin launch
 ```
 produces the following partial output:
 
-```bash
+```
 📦 Extracting dependencies from image darwin-llama3.1_8b:amd64 for service llama
 📦 Extracting dependencies from image darwin-whisper:amd64 for service whisper
 📦 Extracting dependencies from image darwin-gtts:amd64 for service gtts
