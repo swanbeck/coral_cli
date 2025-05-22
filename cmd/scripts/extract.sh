@@ -8,10 +8,10 @@ if [ "$(id -u)" -eq 0 ]; then
     # exit 1
 fi
 
-# check for specific darwin user
-if [ "$(whoami)" != "darwin" ]; then
-    echo "Warn: This script should be run as the 'darwin' user." >&2
-    # exit 1
+# check if the 'darwin' user exists on the system
+if ! id -u darwin &>/dev/null; then
+    echo "Error: The 'darwin' user does not exist on this system." >&2
+    exit 1
 fi
 
 # check if rsync is installed
