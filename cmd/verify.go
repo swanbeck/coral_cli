@@ -53,9 +53,17 @@ func verify(imageName string, envFile string) error {
 	}
 	if resolvedEnvFile != "" {
 		var err error
-		env, err = compose.LoadEnv(resolvedEnvFile)
+		env, err = compose.LoadEnvFile(resolvedEnvFile)
 		if err != nil {
 			return fmt.Errorf("loading .env: %w", err)
+		}
+	}
+	for _, e := range os.Environ() {
+		parts := strings.SplitN(e, "=", 2)
+		if len(parts) == 2 {
+			if _, exists := env[parts[0]]; !exists {
+				env[parts[0]] = parts[1]
+			}
 		}
 	}
 

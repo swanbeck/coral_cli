@@ -12,12 +12,12 @@ import (
 var psCmd = &cobra.Command{
 	Use:   "ps",
 	Short: "List only running containers from darwin images",
-	Run: func(cmd *cobra.Command, args []string) {
-		showDarwinContainers(args)
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return showDarwinContainers(args)
 	},
 }
 
-func showDarwinContainers(args []string) {
+func showDarwinContainers(args []string) error {
 	allArgs := append([]string{"ps"}, args...)
 	cmd := exec.Command("docker", allArgs...)
 	stdout, err := cmd.StdoutPipe()
@@ -53,4 +53,5 @@ func showDarwinContainers(args []string) {
 	}
 
 	cmd.Wait()
+	return nil
 }

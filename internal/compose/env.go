@@ -7,7 +7,7 @@ import (
 )
 
 // loads a .env file and merges with system environment variables
-func LoadEnv(envFile string) (map[string]string, error) {
+func LoadEnvFile(envFile string) (map[string]string, error) {
 	env := map[string]string{}
 
 	if envFile != "" {
@@ -22,16 +22,6 @@ func LoadEnv(envFile string) (map[string]string, error) {
 			key, value, success := parseEnvLine(scanner.Text())
 			if success {
 				env[key] = value
-			}
-		}
-	}
-
-	// add system environment variables (only for variables not present in .env file)
-	for _, e := range os.Environ() {
-		parts := strings.SplitN(e, "=", 2)
-		if len(parts) == 2 {
-			if _, exists := env[parts[0]]; !exists {
-				env[parts[0]] = parts[1]
 			}
 		}
 	}

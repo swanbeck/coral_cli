@@ -11,12 +11,12 @@ import (
 var imagesCmd = &cobra.Command{
 	Use:   "images",
 	Short: "List only darwin-prefixed Docker images",
-	Run: func(cmd *cobra.Command, args []string) {
-		showDarwinImages(args)
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return showDarwinImages(args)
 	},
 }
 
-func showDarwinImages(args []string) {
+func showDarwinImages(args []string) error {
 	allArgs := append([]string{"images"}, args...)
 	cmd := exec.Command("docker", allArgs...)
 	stdout, err := cmd.StdoutPipe()
@@ -40,4 +40,5 @@ func showDarwinImages(args []string) {
 	}
 
 	cmd.Wait()
+	return nil
 }

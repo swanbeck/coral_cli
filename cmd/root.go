@@ -20,19 +20,30 @@ var rootCmd = &cobra.Command{
 			return
 		}
 		// we need to handle base docker commands (or commands we want to treat like docker commands but with extra pre- or post-processing) explictly so all flags are passed along to those docker commands rather than being parsed by cobra
+		var err error
+
 		switch args[0] {
 		case "images":
-			imagesCmd.Run(cmd, args[1:])
+			err = imagesCmd.RunE(cmd, args[1:])
 		case "ps":
-			psCmd.Run(cmd, args[1:])
+			err = psCmd.RunE(cmd, args[1:])
 		default: // forward everything else that didn't come here or get parsed by cobra to docker
 			runDockerCommand(args...)
+			return
+		}
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
 		}
 	},
 }
 
 func Execute() {
-	_ = rootCmd.Execute()
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func runDockerCommand(args ...string) {

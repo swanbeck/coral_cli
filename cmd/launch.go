@@ -72,7 +72,7 @@ func launch(composePath string, envFile string, handle string, group string, det
 	}
 	if resolvedEnvFile != "" {
 		var err error
-		env, err = compose.LoadEnv(resolvedEnvFile)
+		env, err = compose.LoadEnvFile(resolvedEnvFile)
 		if err != nil {
 			return fmt.Errorf("loading .env: %w", err)
 		}
