@@ -77,6 +77,14 @@ func launch(composePath string, envFile string, handle string, group string, det
 			return fmt.Errorf("loading .env: %w", err)
 		}
 	}
+	for _, e := range os.Environ() {
+		parts := strings.SplitN(e, "=", 2)
+		if len(parts) == 2 {
+			if _, exists := env[parts[0]]; !exists {
+				env[parts[0]] = parts[1]
+			}
+		}
+	}
 
 	// resolve and parse compose file
 	resolvedComposePath, err := io.ResolveComposeFile(composePath)
