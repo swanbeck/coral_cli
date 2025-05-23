@@ -46,7 +46,7 @@ Use "darwin [command] --help" for more information about a command.
 
 ---
 ### Usage
-The Darwin CLI wraps certain Docker commands, including `darwin images` and `darwin ps`, to only show Darwin images or containers. However, most of its utility is relaized through a small set of bespoke commands:
+The Darwin CLI wraps certain Docker commands, including `darwin images` and `darwin ps`, to only show Darwin images or containers. However, most of its utility is realized through a small set of bespoke commands:
 
 #### Launch
 Darwin launch takes in a valid Docker compose file and starts services listed within it in a particular manner. It first extracts runtime dependencies from all provided images using an embedded extraction entrypoint. To do this, the environment variable `DARWIN_LIB`, which controls where extracted files are placed, must be set to an absolute path in the local filesystem. Additionally, if running Darwin from inside a Docker container, the environment variable `DARWIN_IS_DOCKER=true` must be set and `DARWIN_HOST_LIB` must point to the same directory as `DARWIN_LIB` but within the host filesystem. For example, consider the following Docker compose file snippet:
@@ -64,7 +64,7 @@ services:
 ```
 These variables must be set because Darwin launches Docker containers using the host system's Docker installation. 
 
-Once the proper environment variables are set, a Docker compose file can be created to start the relevant containers. The compose file to be run can be specified explicitly with `-f` or a local file `(docker-)compose.y(a)ml` will be used if exists and not overwritten. As an example, here is a valid Docker compose file that is compatible with Darwin launch:
+Once the proper environment variables are set, a Docker compose file can be created to start the relevant containers. The compose file to be run can be specified explicitly with `-f` or a local file `(docker-)compose.y(a)ml` will be used if exists and not overriden. As an example, here is a valid Docker compose file that is compatible with Darwin launch:
 ```yaml
 # compose.yaml
 x-darwin-config:

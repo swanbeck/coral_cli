@@ -20,6 +20,7 @@ func ExtractImage(image, containerName, libPath string, extractionEntrypoint str
 		"-e", "EXPORT_PATH=/export",
 		"-v", fmt.Sprintf("%s:/export", libPath),
 		"-v", fmt.Sprintf("%s:/extract.sh", extractionEntrypoint),
+		"--user", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()),
 		"--entrypoint", "/extract.sh",
 		image,
 	)

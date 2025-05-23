@@ -3,19 +3,22 @@ package cmd
 import (
 	"embed"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/enescakir/emoji"
 	"github.com/spf13/cobra"
 
 	"darwin_cli/internal/compose"
+	"darwin_cli/internal/extractor"
 	"darwin_cli/internal/io"
 )
 
-//go:embed scripts/verify.sh
+//go:embed scripts/extract.sh
 var defaultVerifyEntrypoint embed.FS
 
 var (
@@ -34,7 +37,12 @@ var verifyCmd = &cobra.Command{
 			return fmt.Errorf("image name is required")
 		}
 		imageName := args[0]
-		return verify(imageName, verifyEnvFile)
+		err := verify(imageName, verifyEnvFile)
+		if err != nil {
+			return fmt.Errorf("%s verification failed: %w", emoji.CrossMark, err)
+		}
+		fmt.Printf("%s  Verification completed successfully.\n", emoji.CheckMarkButton)
+		return nil
 	},
 }
 
@@ -44,6 +52,19 @@ func verify(imageName string, envFile string) error {
 	if err := inspectCmd.Run(); err != nil {
 		return fmt.Errorf("docker image %q not found locally: %w", imageName, err)
 	}
+
+	// make temporary directory
+	tempDir, err := os.MkdirTemp("", "verify-export-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp dir: %w", err)
+	}
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			fmt.Printf("failed to remove tempDir: %v\n", err)
+		}
+	}()
+	uid := os.Getuid()
+	gid := os.Getgid()
 
 	// load and resolve environment
 	env := make(map[string]string)
@@ -84,12 +105,12 @@ func verify(imageName string, envFile string) error {
 	}
 
 	// get embedded verification script
-	content, err := defaultVerifyEntrypoint.ReadFile("scripts/verify.sh")
+	content, err := defaultVerifyEntrypoint.ReadFile("scripts/extract.sh")
 	if err != nil {
 		return fmt.Errorf("failed to read embedded script: %w", err)
 	}
 
-	verifyEntrypoint := filepath.Join(libPath, "verify.sh")
+	verifyEntrypoint := filepath.Join(libPath, "extract.sh")
 	if err := os.WriteFile(verifyEntrypoint, content, 0755); err != nil {
 		return fmt.Errorf("failed to write temp script: %w", err)
 	}
@@ -104,26 +125,43 @@ func verify(imageName string, envFile string) error {
 
 	// if docker, the entrypint must be provided wrt the host filesystem
 	if isDocker == "true" {
-		verifyEntrypoint = filepath.Join(hostLibPath, "verify.sh")
+		verifyEntrypoint = filepath.Join(hostLibPath, "extract.sh")
 	}
 
-	// now run with the entrypoint and see if it works
-	cmd := exec.Command(
-		"docker", "run", "--rm",
-		"-v", fmt.Sprintf("%s:/verify.sh", verifyEntrypoint),
-		"--entrypoint", "/verify.sh",
-		imageName,
-	)
-
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	err = cmd.Run()
+	// run the extraction step
+	_, err = extractor.ExtractImage(imageName, "darwin", tempDir, verifyEntrypoint)
 	if err != nil {
-		fmt.Printf("%s Verification failed for image %s: %v\n", emoji.CrossMark, imageName, err)
-	} else {
-		fmt.Printf("%s Verification succeeded for image %s\n", emoji.CheckMarkButton, imageName)
+		return fmt.Errorf("failed to extract export dependencies from image; recommend checking ownership of export files inside the container: %w", err)
 	}
 
-	return err
+	// walk the tempDir and make sure the files are owned by the user
+	var mismatches []string
+	err = filepath.Walk(tempDir, func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok {
+			return fmt.Errorf("unable to get raw stat info for %s", path)
+		}
+
+		if stat.Uid != uint32(uid) || stat.Gid != uint32(gid) {
+			msg := fmt.Sprintf("MISMATCH: %s | UID: %d (expected %d), GID: %d (expected %d)", path, stat.Uid, uid, stat.Gid, gid)
+			fmt.Println(msg)
+			mismatches = append(mismatches, msg)
+		} else {
+			fmt.Printf("OK: %s | UID: %d | GID: %d\n", path, stat.Uid, stat.Gid)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to walk tempDir: %w", err)
+	}
+
+	if len(mismatches) > 0 {
+		return fmt.Errorf("ownership verification failed for %d file(s):\n%s",
+			len(mismatches), strings.Join(mismatches, "\n"))
+	}
+
+	return nil
 }

@@ -2,18 +2,6 @@
 
 set -euo pipefail
 
-# check user is not root
-if [ "$(id -u)" -eq 0 ]; then
-    echo "Warn: This script should not be run as root." >&2
-    # exit 1
-fi
-
-# check if the 'darwin' user exists on the system
-if ! id -u darwin &>/dev/null; then
-    echo "Error: The 'darwin' user does not exist on this system." >&2
-    exit 1
-fi
-
 # check if rsync is installed
 if ! command -v rsync &>/dev/null; then
     echo "Error: rsync is not installed. Please install rsync and try again." >&2
@@ -49,4 +37,4 @@ else
 fi
 
 # set permissions for the export path
-chown -R darwin:darwin "$EXPORT_PATH" 2>/dev/null || true
+chown -R 1000:1000 "$EXPORT_PATH" 2>/dev/null || true
