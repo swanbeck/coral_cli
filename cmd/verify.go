@@ -53,19 +53,6 @@ func verify(imageName string, envFile string) error {
 		return fmt.Errorf("docker image %q not found locally: %w", imageName, err)
 	}
 
-	// make temporary directory
-	tempDir, err := os.MkdirTemp("", "verify-export-*")
-	if err != nil {
-		return fmt.Errorf("failed to create temp dir: %w", err)
-	}
-	defer func() {
-		if err := os.RemoveAll(tempDir); err != nil {
-			fmt.Printf("failed to remove tempDir: %v\n", err)
-		}
-	}()
-	uid := os.Getuid()
-	gid := os.Getgid()
-
 	// load and resolve environment
 	env := make(map[string]string)
 	resolvedEnvFile, err := io.ResolveEnvFile(envFile)
@@ -123,10 +110,36 @@ func verify(imageName string, envFile string) error {
 		}
 	}()
 
-	// if docker, the entrypint must be provided wrt the host filesystem
+	// if docker, the entrypoint must be provided wrt the host filesystem
 	if isDocker == "true" {
 		verifyEntrypoint = filepath.Join(hostLibPath, "extract.sh")
 	}
+
+	// make temporary directory
+	tempDir, err := os.MkdirTemp(libPath, "verify-export-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp dir: %w", err)
+	}
+	deleteTempDir := tempDir
+	defer func() {
+		if err := os.RemoveAll(deleteTempDir); err != nil {
+			fmt.Printf("failed to remove tempDir: %v\n", err)
+		}
+	}()
+
+	// if docker, the temp dir must be provided wrt the host filesystem
+	if isDocker == "true" {
+		// if running in Docker, we need to mount the tempDir to the container
+		relPath, err := filepath.Rel(libPath, tempDir)
+		if err != nil {
+			return fmt.Errorf("failed to get relative path from libPath to tempDir: %w", err)
+		}
+		tempDir = filepath.Join(hostLibPath, relPath)
+	}
+
+	// hardcoding these to be 1000 because some containers that will run the verify command do need to be run as root (0:0)
+	uid := 1000 //os.Getuid()
+	gid := 1000 //os.Getgid()
 
 	// run the extraction step
 	_, err = extractor.ExtractImage(imageName, "darwin", tempDir, verifyEntrypoint)
@@ -134,9 +147,9 @@ func verify(imageName string, envFile string) error {
 		return fmt.Errorf("failed to extract export dependencies from image; recommend checking ownership of export files inside the container: %w", err)
 	}
 
-	// walk the tempDir and make sure the files are owned by the user
+	// walk the temp dir and make sure the files are owned by the user (usiing local file system temp dir)
 	var mismatches []string
-	err = filepath.Walk(tempDir, func(path string, info fs.FileInfo, err error) error {
+	err = filepath.Walk(deleteTempDir, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -147,15 +160,13 @@ func verify(imageName string, envFile string) error {
 
 		if stat.Uid != uint32(uid) || stat.Gid != uint32(gid) {
 			msg := fmt.Sprintf("MISMATCH: %s | UID: %d (expected %d), GID: %d (expected %d)", path, stat.Uid, uid, stat.Gid, gid)
-			fmt.Println(msg)
 			mismatches = append(mismatches, msg)
 		} else {
-			fmt.Printf("OK: %s | UID: %d | GID: %d\n", path, stat.Uid, stat.Gid)
 		}
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("failed to walk tempDir: %w", err)
+		return fmt.Errorf("failed to walk temporary directory: %w", err)
 	}
 
 	if len(mismatches) > 0 {
