@@ -41,7 +41,7 @@ var verifyCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("%s verification failed: %w", emoji.CrossMark, err)
 		}
-		fmt.Printf("%s  Verification completed successfully.\n", emoji.CheckMarkButton)
+		fmt.Printf("%s Verification completed successfully.\n", emoji.CheckMarkButton)
 		return nil
 	},
 }
