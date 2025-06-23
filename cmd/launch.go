@@ -463,27 +463,30 @@ func runForeground(profiles []string, instanceName string, composePath string, k
 	shutdownChan := make(chan struct{})
 	go func() {
 		<-signalChan
-		fmt.Printf("\nInterrupt received. Forcing shutdown...\n")
 		close(shutdownChan)
+	}()
+
+	doneChan := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(doneChan)
 	}()
 
 	// wait for termination signal or errors from any log goroutine
 	select {
 	case <-shutdownChan:
-		cleanup.StopCompose(instanceName, composePath, kill, profiles)
-		fmt.Printf("%s Cleaning up files for instance %s...\n", emoji.Broom, instanceName)
-		cleanup.RemoveInstanceFiles(instanceName)
-		fmt.Printf("Done.\n")
+		fmt.Printf("\nInterrupt received. Forcing shutdown...\n")
+	case <-doneChan:
+		fmt.Printf("All log tails completed. Shutting down...\n")
 	case err := <-errCh:
 		fmt.Printf("Error while streaming logs: %v\n", err)
-		cleanup.StopCompose(instanceName, composePath, kill, profiles)
-		fmt.Printf("%s Cleaning up files for instance %s...\n", emoji.Broom, instanceName)
-		cleanup.RemoveInstanceFiles(instanceName)
-		fmt.Printf("Done.\n")
 	}
 
-	// wait for all log tails to finish
-	wg.Wait()
+	// clean everything up
+	cleanup.StopCompose(instanceName, composePath, kill, profiles)
+	fmt.Printf("Cleaning up files for instance %s...\n", instanceName)
+	cleanup.RemoveInstanceFiles(instanceName)
+	fmt.Printf("%s Done.\n", emoji.CheckMarkButton)
 
 	return nil
 }
