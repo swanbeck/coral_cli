@@ -45,7 +45,7 @@ func init() {
 	launchCmd.Flags().StringVar(&launchHandle, "handle", "", "Optional handle for this instance")
 	launchCmd.Flags().StringVarP(&launchGroup, "group", "g", "darwin", "Optional group for this instance")
 	launchCmd.Flags().BoolVarP(&launchDetached, "detached", "d", false, "Launch in detached mode")
-	launchCmd.Flags().BoolVar(&launchKill, "kill", false, "Forcefully kills instances before removing them")
+	launchCmd.Flags().BoolVar(&launchKill, "kill", true, "Forcefully kills instances before removing them")
 	launchCmd.Flags().Float32Var(&launchExecutorDelay, "executor-delay", 1.0, "Delay in seconds before starting executors; used to provide small delay for drivers and skillsets to start before executors")
 }
 
@@ -154,7 +154,7 @@ func launch(composePath string, envFile string, handle string, group string, det
 		return err
 	}
 
-	fmt.Printf("%s Starting instance with name: %s\n", emoji.Rocket, instanceName)
+	fmt.Printf("Starting instance with name: %s\n", instanceName)
 	// logProfileSummary(profilesMap)
 
 	profiles = orderedProfiles(profiles)
@@ -205,7 +205,28 @@ func buildMergedCompose(cf *compose.ComposeFile, lib string, hostLib string, ext
 			if err != nil {
 				return nil, nil, fmt.Errorf("parsing extracted compose for %s: %w", name, err)
 			}
-			merged["services"].(map[string]interface{})[name] = compose.MergeServiceConfigs(rawServices[name].(map[string]interface{}), extracted)
+
+			// replace relative volume paths with absolute paths
+			mergedSvc := compose.MergeServiceConfigs(rawServices[name].(map[string]interface{}), extracted)
+			if volumes, ok := mergedSvc["volumes"].([]interface{}); ok {
+				for i, v := range volumes {
+					volStr, ok := v.(string)
+					if !ok {
+						continue
+					}
+					parts := strings.SplitN(volStr, ":", 2)
+					if len(parts) == 2 {
+						hostPath := parts[0]
+						if !filepath.IsAbs(hostPath) && !strings.HasPrefix(hostPath, "${") {
+							absPath, err := filepath.Abs(hostPath)
+							if err == nil {
+								volumes[i] = fmt.Sprintf("%s:%s", absPath, parts[1])
+							}
+						}
+					}
+				}
+			}
+			merged["services"].(map[string]interface{})[name] = mergedSvc
 		} else {
 			merged["services"].(map[string]interface{})[name] = rawServices[name]
 		}
@@ -237,7 +258,7 @@ func extractProfileNames(profiles map[string][]string) []string {
 }
 
 func writeComposeToDisk(path string, compose_data compose.RawCompose) error {
-	fmt.Printf("%s Writing merged compose file to: %s\n", emoji.Memo, path)
+	fmt.Printf("Writing merged compose file to: %s\n", path)
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("creating output dir: %w", err)
 	}
@@ -298,7 +319,7 @@ func runDetached(profiles []string, instanceName, composePath string, executorDe
 
 		// optional delay before executors
 		if profile == "executors" {
-			fmt.Printf("%s Delaying %.0fs before starting executors...\n", emoji.HourglassNotDone, executorDelay)
+			fmt.Printf("Delaying %.0fs before starting executors...\n", executorDelay)
 			time.Sleep(time.Duration(executorDelay) * time.Second)
 		}
 
@@ -313,7 +334,7 @@ func runDetached(profiles []string, instanceName, composePath string, executorDe
 	return nil
 }
 
-func runForeground(profiles []string, instanceName, composePath string, kill bool, executorDelay float32, profilesMap map[string][]string) error {
+func runForeground(profiles []string, instanceName string, composePath string, kill bool, executorDelay float32, profilesMap map[string][]string) error {
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
@@ -440,50 +461,11 @@ func runForeground(profiles []string, instanceName, composePath string, kill boo
 	}
 
 	shutdownChan := make(chan struct{})
-	if !kill {
-		go func() {
-			var mu sync.Mutex
-			interruptCount := 0
-			gracePeriod := 2 * time.Second
-			timer := (*time.Timer)(nil)
-
-			for {
-				<-signalChan
-				mu.Lock()
-				interruptCount++
-				if interruptCount == 1 {
-					fmt.Printf("\n%s  Interrupt received. Press Ctrl+C again within %.0f seconds to force kill.\n", emoji.Warning, gracePeriod.Seconds())
-
-					timer = time.AfterFunc(gracePeriod, func() {
-						mu.Lock()
-						defer mu.Unlock()
-						if interruptCount == 1 {
-							// graceful shutdown
-							close(shutdownChan)
-						}
-					})
-				} else {
-					// force kill
-					fmt.Printf("\n%s Second interrupt received. Forcing shutdown...\n", emoji.CrossMark)
-					kill = true
-					if timer != nil {
-						timer.Stop()
-					}
-					close(shutdownChan)
-					mu.Unlock()
-					return
-				}
-				mu.Unlock()
-			}
-		}()
-	} else {
-		// if kill == true, exit on first signal
-		go func() {
-			<-signalChan
-			fmt.Printf("\n%s Interrupt received. Forcing shutdown...\n", emoji.CrossMark)
-			close(shutdownChan)
-		}()
-	}
+	go func() {
+		<-signalChan
+		fmt.Printf("\nInterrupt received. Forcing shutdown...\n")
+		close(shutdownChan)
+	}()
 
 	// wait for termination signal or errors from any log goroutine
 	select {
@@ -491,13 +473,13 @@ func runForeground(profiles []string, instanceName, composePath string, kill boo
 		cleanup.StopCompose(instanceName, composePath, kill, profiles)
 		fmt.Printf("%s Cleaning up files for instance %s...\n", emoji.Broom, instanceName)
 		cleanup.RemoveInstanceFiles(instanceName)
-		fmt.Printf("%s Done.\n", emoji.CheckMarkButton)
+		fmt.Printf("Done.\n")
 	case err := <-errCh:
-		fmt.Printf("%s  Error while streaming logs: %v\n", emoji.Warning, err)
+		fmt.Printf("Error while streaming logs: %v\n", err)
 		cleanup.StopCompose(instanceName, composePath, kill, profiles)
 		fmt.Printf("%s Cleaning up files for instance %s...\n", emoji.Broom, instanceName)
 		cleanup.RemoveInstanceFiles(instanceName)
-		fmt.Printf("%s Done.\n", emoji.CheckMarkButton)
+		fmt.Printf("Done.\n")
 	}
 
 	// wait for all log tails to finish
