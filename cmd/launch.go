@@ -142,6 +142,16 @@ func launch(composePath string, envFile string, handle string, group string, det
 	}
 	profiles := extractProfileNames(profilesMap)
 
+	// make sure mergedCompose has a services section
+	servicesRaw, ok := mergedCompose["services"]
+	if !ok {
+		return fmt.Errorf("merged compose file does not contain a 'services' section")
+	}
+	services, ok := servicesRaw.(map[string]interface{})
+	if !ok || len(services) == 0 {
+		return fmt.Errorf("merged compose file does not contain any valid services")
+	}
+
 	// write merged compose
 	instanceName := fmt.Sprintf("darwin-%d", time.Now().UnixNano())
 	outputPath := filepath.Join(libPath, "compose", instanceName+".yaml")
@@ -188,15 +198,22 @@ func buildMergedCompose(cf *compose.ComposeFile, lib string, hostLib string, ext
 
 	for name, svc := range cf.Services {
 		image := svc["image"].(string)
-		fmt.Printf("%s Extracting dependencies from image %s for service %s\n", emoji.Package, image, name)
-		imageID, err := extractor.ExtractImage(image, "darwin-"+name, imageLib, extractionEntrypoint)
-		if err != nil {
-			return nil, nil, fmt.Errorf("extracting image: %w", err)
-		}
 
 		profs := extractServiceProfiles(svc)
 		for _, p := range profs {
 			profiles[p] = append(profiles[p], name)
+		}
+
+		validProfiles := []string{"drivers", "skillsets", "executors"}
+		if !hasIntersection(profs, validProfiles) {
+			fmt.Printf("%s  Skipping service %s as it does not match any valid profiles %v...\n", emoji.Warning, name, validProfiles)
+			continue
+		}
+
+		fmt.Printf("%s Extracting dependencies from image %s for service %s\n", emoji.Package, image, name)
+		imageID, err := extractor.ExtractImage(image, "darwin-"+name, imageLib, extractionEntrypoint)
+		if err != nil {
+			return nil, nil, fmt.Errorf("extracting image: %w", err)
 		}
 
 		extractedPath := filepath.Join(lib, "docker", imageID+".yaml")
@@ -233,6 +250,19 @@ func buildMergedCompose(cf *compose.ComposeFile, lib string, hostLib string, ext
 	}
 
 	return merged, profiles, nil
+}
+
+func hasIntersection(a, b []string) bool {
+	set := make(map[string]struct{}, len(b))
+	for _, item := range b {
+		set[item] = struct{}{}
+	}
+	for _, item := range a {
+		if _, ok := set[item]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func extractServiceProfiles(service map[string]interface{}) []string {
