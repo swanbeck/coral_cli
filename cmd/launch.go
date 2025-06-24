@@ -368,6 +368,18 @@ func runForeground(profiles []string, instanceName string, composePath string, k
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
+	defer func() {
+		signal.Reset(os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+
+		fmt.Printf("Shutting down containers for instance %s\n", instanceName)
+		cleanup.StopCompose(instanceName, composePath, kill, profiles)
+
+		fmt.Printf("Cleaning up files for instance %s\n", instanceName)
+		cleanup.RemoveInstanceFiles(instanceName)
+
+		fmt.Printf("%s Done.\n", emoji.CheckMarkButton)
+	}()
+
 	// start all profiles detached
 	err := runDetached(profiles, instanceName, composePath, executorDelay, profilesMap)
 	if err != nil {
@@ -506,17 +518,19 @@ func runForeground(profiles []string, instanceName string, composePath string, k
 	select {
 	case <-shutdownChan:
 		fmt.Printf("\nInterrupt received. Forcing shutdown...\n")
+		// signal.Reset(os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	case <-doneChan:
 		fmt.Printf("All log tails completed. Shutting down...\n")
 	case err := <-errCh:
 		fmt.Printf("Error while streaming logs: %v\n", err)
+		// signal.Reset(os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	}
 
-	// clean everything up
-	cleanup.StopCompose(instanceName, composePath, kill, profiles)
-	fmt.Printf("Cleaning up files for instance %s\n", instanceName)
-	cleanup.RemoveInstanceFiles(instanceName)
-	fmt.Printf("%s Done\n", emoji.CheckMarkButton)
+	// // clean everything up
+	// cleanup.StopCompose(instanceName, composePath, kill, profiles)
+	// fmt.Printf("Cleaning up files for instance %s\n", instanceName)
+	// cleanup.RemoveInstanceFiles(instanceName)
+	// fmt.Printf("%s Done\n", emoji.CheckMarkButton)
 
 	return nil
 }
