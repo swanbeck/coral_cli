@@ -211,7 +211,7 @@ func buildMergedCompose(cf *compose.ComposeFile, lib string, hostLib string, ext
 		}
 
 		fmt.Printf("%s Extracting dependencies from image %s for service %s\n", emoji.Package, image, name)
-		imageID, err := extractor.ExtractImage(image, "darwin-"+name, imageLib, extractionEntrypoint)
+		imageID, err := extractor.ExtractImage(image, name, imageLib, extractionEntrypoint)
 		if err != nil {
 			return nil, nil, fmt.Errorf("extracting image: %w", err)
 		}
@@ -368,17 +368,19 @@ func runForeground(profiles []string, instanceName string, composePath string, k
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
-	defer func() {
-		signal.Reset(os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+	var cleanupOnce sync.Once
+	cleanup := func() {
+		cleanupOnce.Do(func() {
+			// ignore further SIGINT/SIGTERM during cleanup
+			signal.Ignore(syscall.SIGINT, syscall.SIGTERM)
 
-		fmt.Printf("Shutting down containers for instance %s\n", instanceName)
-		cleanup.StopCompose(instanceName, composePath, kill, profiles)
-
-		fmt.Printf("Cleaning up files for instance %s\n", instanceName)
-		cleanup.RemoveInstanceFiles(instanceName)
-
-		fmt.Printf("%s Done.\n", emoji.CheckMarkButton)
-	}()
+			cleanup.StopCompose(instanceName, composePath, kill, profiles)
+			fmt.Printf("Cleaning up files for instance %s\n", instanceName)
+			cleanup.RemoveInstanceFiles(instanceName)
+			fmt.Printf("%s Done.\n", emoji.CheckMarkButton)
+		})
+	}
+	defer cleanup()
 
 	// start all profiles detached
 	err := runDetached(profiles, instanceName, composePath, executorDelay, profilesMap)
@@ -518,19 +520,12 @@ func runForeground(profiles []string, instanceName string, composePath string, k
 	select {
 	case <-shutdownChan:
 		fmt.Printf("\nInterrupt received. Forcing shutdown...\n")
-		// signal.Reset(os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+		// cleanup()
 	case <-doneChan:
 		fmt.Printf("All log tails completed. Shutting down...\n")
 	case err := <-errCh:
 		fmt.Printf("Error while streaming logs: %v\n", err)
-		// signal.Reset(os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	}
-
-	// // clean everything up
-	// cleanup.StopCompose(instanceName, composePath, kill, profiles)
-	// fmt.Printf("Cleaning up files for instance %s\n", instanceName)
-	// cleanup.RemoveInstanceFiles(instanceName)
-	// fmt.Printf("%s Done\n", emoji.CheckMarkButton)
 
 	return nil
 }

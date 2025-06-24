@@ -138,6 +138,7 @@ func cleanupFromCompose(composePath, libPath string) error {
 			fmt.Printf("Skipping cleanup for %s (could not resolve image ID): %v\n", name, err)
 			continue
 		}
+		imageID = imageID + "-darwin-" + name
 
 		// locate and clean up extracted files
 		dockerPath := filepath.Join(libPath, "docker", imageID+".yaml")
