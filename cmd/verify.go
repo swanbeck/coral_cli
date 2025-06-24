@@ -141,6 +141,27 @@ func verify(imageName string, envFile string) error {
 	uid := 1000 //os.Getuid()
 	gid := 1000 //os.Getgid()
 
+	// make sure /ws exists and has proper ownership
+	checkCmd := exec.Command("docker", "run", "--rm",
+		"--entrypoint", "stat",
+		imageName,
+		"-c", "%u:%g", "/ws")
+	output, err := checkCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to stat /ws in container: %w\nOutput: %s", err, string(output))
+	}
+	owner := strings.TrimSpace(string(output))
+	if owner != fmt.Sprintf("%d:%d", uid, gid) {
+		return fmt.Errorf("/ws in container %s has wrong ownership: got %s, expected %d:%d", imageName, owner, uid, gid)
+	}
+	checkDirCmd := exec.Command("docker", "run", "--rm",
+		"--entrypoint", "sh",
+		imageName,
+		"-c", "test -d /ws")
+	if err := checkDirCmd.Run(); err != nil {
+		return fmt.Errorf("/ws does not exist or is not a directory in image %q", imageName)
+	}
+
 	// run the extraction step
 	_, err = extractor.ExtractImage(imageName, "darwin", tempDir, verifyEntrypoint)
 	if err != nil {
