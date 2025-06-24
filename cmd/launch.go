@@ -206,7 +206,7 @@ func buildMergedCompose(cf *compose.ComposeFile, lib string, hostLib string, ext
 
 		validProfiles := []string{"drivers", "skillsets", "executors"}
 		if !hasIntersection(profs, validProfiles) {
-			fmt.Printf("%s  Skipping service %s as it does not match any valid profiles %v...\n", emoji.Warning, name, validProfiles)
+			fmt.Printf("%s  Skipping service %s as it does not match any valid profiles %v\n", emoji.Warning, name, validProfiles)
 			continue
 		}
 
@@ -514,9 +514,9 @@ func runForeground(profiles []string, instanceName string, composePath string, k
 
 	// clean everything up
 	cleanup.StopCompose(instanceName, composePath, kill, profiles)
-	fmt.Printf("Cleaning up files for instance %s...\n", instanceName)
+	fmt.Printf("Cleaning up files for instance %s\n", instanceName)
 	cleanup.RemoveInstanceFiles(instanceName)
-	fmt.Printf("%s Done.\n", emoji.CheckMarkButton)
+	fmt.Printf("%s Done\n", emoji.CheckMarkButton)
 
 	return nil
 }
