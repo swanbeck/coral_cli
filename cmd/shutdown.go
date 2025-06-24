@@ -24,7 +24,7 @@ func init() {
 	shutdownCmd.Flags().StringVar(&shutdownHandle, "handle", "", "Handle to shut down")
 	shutdownCmd.Flags().StringVarP(&shutdownGroup, "group", "g", "", "Group to shut down")
 	shutdownCmd.Flags().BoolVarP(&shutdownAll, "all", "a", false, "Shut down all instances")
-	shutdownCmd.Flags().BoolVar(&shutdownKill, "kill", false, "Forcefully kills instances before removing them")
+	shutdownCmd.Flags().BoolVar(&shutdownKill, "kill", true, "Forcefully kills instances before removing them")
 }
 
 var shutdownCmd = &cobra.Command{
@@ -59,7 +59,7 @@ func shutdownAllInstances(kill bool) error {
 	}
 
 	for _, meta := range metadataList {
-		fmt.Printf("%s Shutting down instance %s...\n", emoji.CrossMark, meta.Name)
+		fmt.Printf("Shutting down instance %s...\n", meta.Name)
 		profiles, err := extractProfiles(meta.ComposeFile)
 		if err != nil {
 			fmt.Printf("Failed to extract profiles for %s: %v\n", meta.Name, err)
@@ -68,13 +68,13 @@ func shutdownAllInstances(kill bool) error {
 		if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill, profiles); err != nil {
 			fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
 		}
-		fmt.Printf("%s Cleaning up files for instance %s...\n", emoji.Broom, meta.Name)
+		fmt.Printf("Cleaning up instance %s\n", meta.Name)
 		if err := cleanup.RemoveInstanceFiles(meta.Name); err != nil {
 			fmt.Printf("Failed to remove files for %s: %v\n", meta.Name, err)
 		}
 	}
 
-	fmt.Printf("%s Done.\n", emoji.CheckMarkButton)
+	fmt.Printf("%s Done\n", emoji.CheckMarkButton)
 	return nil
 }
 
@@ -86,7 +86,7 @@ func shutdownByName(name string, kill bool) error {
 
 	for _, meta := range metadataList {
 		if meta.Name == name {
-			fmt.Printf("%s Shutting down instance %s...\n", emoji.CrossMark, meta.Name)
+			fmt.Printf("Shutting down instance %s...\n", meta.Name)
 			profiles, err := extractProfiles(meta.ComposeFile)
 			if err != nil {
 				fmt.Printf("Failed to extract profiles for %s: %v\n", meta.Name, err)
@@ -95,9 +95,9 @@ func shutdownByName(name string, kill bool) error {
 			if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill, profiles); err != nil {
 				fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
 			}
-			fmt.Printf("%s Cleaning up files for instance %s...\n", emoji.Broom, meta.Name)
+			fmt.Printf("Cleaning up instance %s\n", meta.Name)
 			err = cleanup.RemoveInstanceFiles(meta.Name)
-			fmt.Printf("%s Done.\n", emoji.CheckMarkButton)
+			fmt.Printf("%s Done\n", emoji.CheckMarkButton)
 			return err
 
 		}
@@ -113,7 +113,7 @@ func shutdownByHandle(handle string, kill bool) error {
 
 	for _, meta := range metadataList {
 		if meta.Handle == handle {
-			fmt.Printf("%s Shutting down instance %s with handle %s...\n", emoji.CrossMark, meta.Name, meta.Handle)
+			fmt.Printf("Shutting down instance %s with handle %s...\n", meta.Name, meta.Handle)
 			profiles, err := extractProfiles(meta.ComposeFile)
 			if err != nil {
 				fmt.Printf("Failed to extract profiles for %s: %v\n", meta.Name, err)
@@ -122,7 +122,7 @@ func shutdownByHandle(handle string, kill bool) error {
 			if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill, profiles); err != nil {
 				fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
 			}
-			fmt.Printf("%s Cleaning up files for instance %s...\n", emoji.Broom, meta.Name)
+			fmt.Printf("Cleaning up instance %s\n", meta.Name)
 			err = cleanup.RemoveInstanceFiles(meta.Name)
 			fmt.Printf("%s Done.\n", emoji.CheckMarkButton)
 			return err
@@ -141,7 +141,7 @@ func shutdownByGroup(group string, kill bool) error {
 	for _, meta := range metadataList {
 		if meta.Group == group {
 			found = true
-			fmt.Printf("%s Shutting down instance %s with group %s...\n", emoji.CrossMark, meta.Name, meta.Group)
+			fmt.Printf("Shutting down instance %s with group %s...\n", meta.Name, meta.Group)
 			profiles, err := extractProfiles(meta.ComposeFile)
 			if err != nil {
 				fmt.Printf("Failed to extract profiles for %s: %v\n", meta.Name, err)
@@ -150,7 +150,7 @@ func shutdownByGroup(group string, kill bool) error {
 			if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill, profiles); err != nil {
 				fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
 			}
-			fmt.Printf("%s Cleaning up files for instance %s...\n", emoji.Broom, meta.Name)
+			fmt.Printf("Cleaning up instance %s\n", meta.Name)
 			if err := cleanup.RemoveInstanceFiles(meta.Name); err != nil {
 				fmt.Printf("Failed to remove files for %s: %v\n", meta.Name, err)
 			}

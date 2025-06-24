@@ -164,7 +164,7 @@ func launch(composePath string, envFile string, handle string, group string, det
 		return err
 	}
 
-	fmt.Printf("Starting instance with name: %s\n", instanceName)
+	fmt.Printf("Starting instance %s\n", instanceName)
 	// logProfileSummary(profilesMap)
 
 	profiles = orderedProfiles(profiles)
@@ -288,7 +288,7 @@ func extractProfileNames(profiles map[string][]string) []string {
 }
 
 func writeComposeToDisk(path string, compose_data compose.RawCompose) error {
-	fmt.Printf("Writing merged compose file to: %s\n", path)
+	fmt.Printf("Writing compose file %s\n", path)
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("creating output dir: %w", err)
 	}
@@ -339,11 +339,11 @@ func runDetached(profiles []string, instanceName, composePath string, executorDe
 	for _, profile := range profiles {
 		symbol := emoji.Toolbox
 		if profile == "drivers" {
-			symbol = emoji.ElectricPlug
+			symbol = emoji.VideoGame
 		} else if profile == "skillsets" {
-			symbol = emoji.Toolbox
+			symbol = emoji.Brain
 		} else if profile == "executors" {
-			symbol = emoji.Gear + " "
+			symbol = emoji.Rocket
 		}
 		fmt.Printf("%s Starting %s (%d): %v\n", symbol, profile, len(profilesMap[profile]), profilesMap[profile])
 
@@ -375,9 +375,9 @@ func runForeground(profiles []string, instanceName string, composePath string, k
 			signal.Ignore(syscall.SIGINT, syscall.SIGTERM)
 
 			cleanup.StopCompose(instanceName, composePath, kill, profiles)
-			fmt.Printf("Cleaning up files for instance %s\n", instanceName)
+			fmt.Printf("Cleaning up instance %s\n", instanceName)
 			cleanup.RemoveInstanceFiles(instanceName)
-			fmt.Printf("%s Done.\n", emoji.CheckMarkButton)
+			fmt.Printf("%s Done\n", emoji.CheckMarkButton)
 		})
 	}
 	defer cleanup()
