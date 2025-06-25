@@ -2,7 +2,7 @@
   <img src="./.asset/coral.svg" width="30%">
 </div>
 
-# CORAL CLI
+# Coral CLI
 The Coral CLI is designed to simplify working with Docker images that are compatible with the Coral ecosystem. It wraps the Docker CLI and extends it with several helpful commands.
 
 ---
@@ -53,16 +53,16 @@ Use "coral [command] --help" for more information about a command.
 The Coral CLI wraps certain Docker commands, including `coral images` and `coral ps`, to only show Coral images or containers. However, most of its utility is realized through a small set of bespoke commands:
 
 #### Launch
-Coral launch takes in a valid Docker compose file and starts services listed within it in a particular manner. It first extracts runtime dependencies from all provided images using an embedded extraction entrypoint. To do this, the environment variable `DARWIN_LIB`, which controls where extracted files are placed, must be set to an absolute path in the local filesystem. Additionally, if running Coral from inside a Docker container, the environment variable `DARWIN_IS_DOCKER=true` must be set and `DARWIN_HOST_LIB` must point to the same directory as `DARWIN_LIB` but within the host filesystem. For example, consider the following Docker compose file snippet:
+Coral launch takes in a valid Docker compose file and starts services listed within it in a particular manner. It first extracts runtime dependencies from all provided images using an embedded extraction entrypoint. To do this, the environment variable `CORAL_LIB`, which controls where extracted files are placed, must be set to an absolute path in the local filesystem. Additionally, if running Coral from inside a Docker container, the environment variable `CORAL_IS_DOCKER=true` must be set and `CORAL_HOST_LIB` must point to the same directory as `CORAL_LIB` but within the host filesystem. For example, consider the following Docker compose file snippet:
 
 ```yaml
 services:
   coral_cli:
     image: coral_cli-latest
     environment:
-      - DARWIN_LIB=/home/coral/lib
-      - DARWIN_IS_DOCKER=true
-      - DARWIN_HOST_LIB=/absolute/path/on/host/to/lib
+      - CORAL_LIB=/home/coral/lib
+      - CORAL_IS_DOCKER=true
+      - CORAL_HOST_LIB=/absolute/path/on/host/to/lib
     volumes:
       - /absolute/path/on/host/to/lib:/home/coral/lib
 ```
@@ -82,7 +82,7 @@ x-coral-config:
     - CONFIG_PATH=${INTERNAL_CONFIG_PATH}
     - COMPOSE_TEMPLATE=${INTERNAL_COMPOSE_TEMPLATE}
     - HOST_CONFIG_PATH=${HOST_CONFIG_PATH}
-    - DARWIN_LIBRARY_PATH=${INTERNAL_DYNAMIC_LIBRARY}
+    - CORAL_LIBRARY_PATH=${INTERNAL_DYNAMIC_LIBRARY}
     - PARAMS=${INTERNAL_CONFIG_PATH}/params/main.yaml
   volumes:
     - ${HOST_CONFIG_PATH}:${INTERNAL_CONFIG_PATH}

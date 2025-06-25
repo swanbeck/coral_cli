@@ -97,18 +97,18 @@ func launch(composePath string, envFile string, handle string, group string, det
 	}
 
 	// validate required environment vars
-	libPath, ok := env["DARWIN_LIB"]
+	libPath, ok := env["CORAL_LIB"]
 	if !ok || strings.TrimSpace(libPath) == "" {
-		return fmt.Errorf("environment variable DARWIN_LIB is not set or empty")
+		return fmt.Errorf("environment variable CORAL_LIB is not set or empty")
 	}
 
-	isDocker := env["DARWIN_IS_DOCKER"]
+	isDocker := env["CORAL_IS_DOCKER"]
 	var hostLibPath string
 	if isDocker == "true" {
 		var ok bool
-		hostLibPath, ok = env["DARWIN_HOST_LIB"]
+		hostLibPath, ok = env["CORAL_HOST_LIB"]
 		if !ok || strings.TrimSpace(hostLibPath) == "" {
-			return fmt.Errorf("environment variable DARWIN_HOST_LIB is required when running in Docker; it should be an absolute path in the host filesystem that points to the Docker mounted LIB_PATH")
+			return fmt.Errorf("environment variable CORAL_HOST_LIB is required when running in Docker; it should be an absolute path in the host filesystem that points to the Docker mounted LIB_PATH")
 		}
 	}
 
