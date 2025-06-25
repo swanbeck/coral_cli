@@ -13,9 +13,9 @@ import (
 	"github.com/enescakir/emoji"
 	"github.com/spf13/cobra"
 
-	"darwin_cli/internal/compose"
-	"darwin_cli/internal/extractor"
-	"darwin_cli/internal/io"
+	"coral_cli/internal/compose"
+	"coral_cli/internal/extractor"
+	"coral_cli/internal/io"
 )
 
 //go:embed scripts/extract.sh
@@ -30,8 +30,8 @@ func init() {
 }
 
 var verifyCmd = &cobra.Command{
-	Use:   "verify",
-	Short: "Checks if a Docker image is compliant with Darwin's standards",
+	Use:   "verify <image-name>",
+	Short: "Checks if a Docker image is compliant with Coral's standards",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) < 1 {
 			return fmt.Errorf("image name is required")
@@ -163,7 +163,7 @@ func verify(imageName string, envFile string) error {
 	}
 
 	// run the extraction step
-	_, err = extractor.ExtractImage(imageName, "darwin", tempDir, verifyEntrypoint)
+	_, err = extractor.ExtractImage(imageName, "coral", tempDir, verifyEntrypoint)
 	if err != nil {
 		return fmt.Errorf("failed to extract export dependencies from image; recommend checking ownership of export files inside the container: %w", err)
 	}

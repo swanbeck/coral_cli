@@ -11,13 +11,13 @@ import (
 
 var psCmd = &cobra.Command{
 	Use:   "ps",
-	Short: "List only running containers from darwin images",
+	Short: "List only running containers from coral images",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return showDarwinContainers(args)
+		return showCoralContainers(args)
 	},
 }
 
-func showDarwinContainers(args []string) error {
+func showCoralContainers(args []string) error {
 	allArgs := append([]string{"ps"}, args...)
 	cmd := exec.Command("docker", allArgs...)
 	stdout, err := cmd.StdoutPipe()
@@ -47,7 +47,7 @@ func showDarwinContainers(args []string) error {
 		}
 		image := fields[1]
 
-		if strings.HasPrefix(image, "darwin") {
+		if strings.HasPrefix(image, "coral") {
 			fmt.Println(line)
 		}
 	}

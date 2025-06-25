@@ -9,9 +9,9 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "darwin",
-	Short: "Darwin wraps Docker for the Darwin ecosystem",
-	// disable cobra's built-in subcommand parsing to allow darwin kill or anything like that that is not overwritten to directly call docker kill or whatever
+	Use:   "coral",
+	Short: "Coral wraps Docker for the Coral ecosystem",
+	// disable cobra's built-in subcommand parsing to allow coral kill or anything like that that is not overwritten to directly call docker kill or whatever
 	DisableFlagParsing: true,
 	Args:               cobra.ArbitraryArgs,
 	Run: func(cmd *cobra.Command, args []string) {

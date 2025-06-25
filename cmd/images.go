@@ -10,13 +10,13 @@ import (
 
 var imagesCmd = &cobra.Command{
 	Use:   "images",
-	Short: "List only darwin-prefixed Docker images",
+	Short: "List only coral-prefixed Docker images",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return showDarwinImages(args)
+		return showCoralImages(args)
 	},
 }
 
-func showDarwinImages(args []string) error {
+func showCoralImages(args []string) error {
 	allArgs := append([]string{"images"}, args...)
 	cmd := exec.Command("docker", allArgs...)
 	stdout, err := cmd.StdoutPipe()
@@ -32,8 +32,8 @@ func showDarwinImages(args []string) error {
 	first := true
 	for scanner.Scan() {
 		line := scanner.Text()
-		if first || strings.HasPrefix(line, "darwin") {
-			// keep the header and lines starting with "darwin"
+		if first || strings.HasPrefix(line, "coral") {
+			// keep the header and lines starting with "coral"
 			println(line)
 		}
 		first = false

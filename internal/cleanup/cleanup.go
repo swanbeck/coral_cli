@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"darwin_cli/internal/compose"
-	"darwin_cli/internal/extractor"
-	"darwin_cli/internal/metadata"
+	"coral_cli/internal/compose"
+	"coral_cli/internal/extractor"
+	"coral_cli/internal/metadata"
 )
 
 func StopCompose(instanceName string, composePath string, kill bool, profiles []string) error {
@@ -138,7 +138,7 @@ func cleanupFromCompose(composePath, libPath string) error {
 			fmt.Printf("Skipping cleanup for %s (could not resolve image ID): %v\n", name, err)
 			continue
 		}
-		imageID = imageID + "-darwin-" + name
+		imageID = imageID + "-coral-" + name
 
 		// locate and clean up extracted files
 		dockerPath := filepath.Join(libPath, "docker", imageID+".yaml")

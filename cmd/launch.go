@@ -19,11 +19,11 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
-	"darwin_cli/internal/cleanup"
-	"darwin_cli/internal/compose"
-	"darwin_cli/internal/extractor"
-	"darwin_cli/internal/io"
-	"darwin_cli/internal/metadata"
+	"coral_cli/internal/cleanup"
+	"coral_cli/internal/compose"
+	"coral_cli/internal/extractor"
+	"coral_cli/internal/io"
+	"coral_cli/internal/metadata"
 )
 
 //go:embed scripts/extract.sh
@@ -43,7 +43,7 @@ func init() {
 	launchCmd.Flags().StringVarP(&launchComposePath, "compose-file", "f", "", "Path to Docker Compose .yaml file to start services")
 	launchCmd.Flags().StringVar(&launchEnvFile, "env-file", "", "Optional path to .env file to use for compose file substitutions")
 	launchCmd.Flags().StringVar(&launchHandle, "handle", "", "Optional handle for this instance")
-	launchCmd.Flags().StringVarP(&launchGroup, "group", "g", "darwin", "Optional group for this instance")
+	launchCmd.Flags().StringVarP(&launchGroup, "group", "g", "coral", "Optional group for this instance")
 	launchCmd.Flags().BoolVarP(&launchDetached, "detached", "d", false, "Launch in detached mode")
 	launchCmd.Flags().BoolVar(&launchKill, "kill", true, "Forcefully kills instances before removing them")
 	launchCmd.Flags().Float32Var(&launchExecutorDelay, "executor-delay", 1.0, "Delay in seconds before starting executors; used to provide small delay for drivers and skillsets to start before executors")
@@ -51,7 +51,7 @@ func init() {
 
 var launchCmd = &cobra.Command{
 	Use:   "launch",
-	Short: "Extract and run Darwin-compatible docker-compose services",
+	Short: "Extract and run Coral-compatible Docker Compose services",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return launch(launchComposePath, launchEnvFile, launchHandle, launchGroup, launchDetached, launchKill, launchExecutorDelay)
 	},
@@ -153,7 +153,7 @@ func launch(composePath string, envFile string, handle string, group string, det
 	}
 
 	// write merged compose
-	instanceName := fmt.Sprintf("darwin-%d", time.Now().UnixNano())
+	instanceName := fmt.Sprintf("coral-%d", time.Now().UnixNano())
 	outputPath := filepath.Join(libPath, "compose", instanceName+".yaml")
 	if err := writeComposeToDisk(outputPath, mergedCompose); err != nil {
 		return err
@@ -305,7 +305,7 @@ func writeInstanceMetadata(instanceName, path, lib, handle, group string) error 
 		Group:       group,
 	}
 	home, _ := os.UserHomeDir()
-	storeDir := filepath.Join(home, ".darwin_cli", "instances")
+	storeDir := filepath.Join(home, ".coral_cli", "instances")
 	os.MkdirAll(storeDir, 0755)
 	data, _ := json.MarshalIndent(meta, "", "  ")
 	return os.WriteFile(filepath.Join(storeDir, instanceName+".json"), data, 0644)

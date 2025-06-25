@@ -12,11 +12,11 @@ func ExtractImage(image string, name string, libPath string, extractionEntrypoin
 	if err != nil {
 		return "", fmt.Errorf("failed to get image ID: %w", err)
 	}
-	imageID = imageID + "-darwin-" + name
+	imageID = imageID + "-coral-" + name
 
 	cmd := exec.Command(
 		"docker", "run", "--rm",
-		"--name", "darwin-"+name,
+		"--name", "coral-"+name,
 		"-e", fmt.Sprintf("IMAGE_ID=%s", imageID),
 		"-e", "EXPORT_PATH=/export",
 		"-v", fmt.Sprintf("%s:/export", libPath),

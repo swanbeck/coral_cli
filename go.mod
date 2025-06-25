@@ -1,4 +1,4 @@
-module darwin_cli
+module coral_cli
 
 go 1.24.3
 

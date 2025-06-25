@@ -23,7 +23,7 @@ func LoadInstanceMetadata(instanceName string) (*InstanceMetadata, string, error
 		return nil, "", fmt.Errorf("could not determine user home directory: %w", err)
 	}
 
-	metaPath := filepath.Join(home, ".darwin_cli", "instances", instanceName+".json")
+	metaPath := filepath.Join(home, ".coral_cli", "instances", instanceName+".json")
 	data, err := os.ReadFile(metaPath)
 	if err != nil {
 		return nil, "", fmt.Errorf("could not read metadata file: %w", err)
@@ -42,7 +42,7 @@ func LoadAllMetadata() ([]InstanceMetadata, error) {
 	if err != nil {
 		return nil, fmt.Errorf("determining user home: %w", err)
 	}
-	dir := filepath.Join(home, ".darwin_cli", "instances")
+	dir := filepath.Join(home, ".coral_cli", "instances")
 
 	files, err := os.ReadDir(dir)
 	if err != nil {

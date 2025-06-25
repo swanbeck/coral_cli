@@ -6,9 +6,9 @@ import (
 	"github.com/enescakir/emoji"
 	"github.com/spf13/cobra"
 
-	"darwin_cli/internal/cleanup"
-	"darwin_cli/internal/compose"
-	"darwin_cli/internal/metadata"
+	"coral_cli/internal/cleanup"
+	"coral_cli/internal/compose"
+	"coral_cli/internal/metadata"
 )
 
 var (
@@ -43,7 +43,7 @@ var shutdownCmd = &cobra.Command{
 		if shutdownGroup != "" {
 			return shutdownByGroup(shutdownGroup, shutdownKill)
 		}
-		return fmt.Errorf("no shutdown criteria provided: use --compose-file, --handle, or --group")
+		return fmt.Errorf("no shutdown criteria provided: use --compose-file, --handle, --group, or --all")
 	},
 }
 
