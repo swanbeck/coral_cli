@@ -3,7 +3,11 @@
 </div>
 
 # Coral CLI
-The Coral CLI is designed to simplify working with Docker images that are compatible with the Coral ecosystem. It wraps the Docker CLI and extends it with several helpful commands.
+Coral (COmposable Robotics Abstraction Layer) represents an effort toward software for robotics applications that is truly composable. Coral draws inspiration from functional programming to create reconfigurable systems composed of modular and reusable atomic components with minimal functional interfaces. This is achieved using behavior trees and containerization.
+
+Just as coral reefs support tremendous biodiversity (25% of marine species while covering less than 1% of the sea floor), Coral provides the scaffolding necessary to support a rich ecosystem of robotics software that enables scalable solutions across a wide range of real-world applications.
+
+<!-- The Coral CLI is designed to simplify working with Docker images that are compatible with the Coral ecosystem. It wraps the Docker CLI and extends it with several helpful commands.  -->
 
 ---
 ### Building
@@ -93,7 +97,7 @@ x-coral-config:
 services:
 
   llama:
-    image: ${PREFIX}-llama3.1_8b:${TAG}
+    image: coral-llama3.1_8b:humble-amd64
     <<: *coral-config
     environment:
       - ROS_DOMAIN_ID=${INTERNAL_ROS_DOMAIN_ID}
@@ -104,7 +108,7 @@ services:
     profiles: [skillsets]
 
   whisper:
-    image: ${PREFIX}-whisper:${TAG}
+    image: coral-whisper:humble-amd64
     <<: *coral-config
     environment:
       - ROS_DOMAIN_ID=${INTERNAL_ROS_DOMAIN_ID}
@@ -115,7 +119,7 @@ services:
     profiles: [skillsets]
 
   gtts:
-    image: ${PREFIX}-gtts:${TAG}
+    image: coral-gtts:humble-amd64
     <<: *coral-config
     environment:
       - ROS_DOMAIN_ID=${INTERNAL_ROS_DOMAIN_ID}
@@ -126,7 +130,7 @@ services:
     profiles: [skillsets]
 
   dynamic_runner:
-    image: ${PREFIX}-dynamic_runner:${TAG}
+    image: coral-dynamic_runner:humble-amd64
     <<: *coral-config
     profiles: [executors]
 ```
