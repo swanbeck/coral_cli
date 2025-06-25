@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/enescakir/emoji"
 )
 
 func ExtractImage(image string, name string, libPath string, extractionEntrypoint string) (string, error) {
@@ -35,8 +37,23 @@ func ExtractImage(image string, name string, libPath string, extractionEntrypoin
 func GetImageID(image string) (string, error) {
 	inspectCmd := exec.Command("docker", "inspect", "--format={{.Id}}", image)
 	output, err := inspectCmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("failed to get image ID: %w", err)
+	if err == nil {
+		return strings.TrimSpace(string(output)), nil
 	}
+
+	fmt.Printf("%s  Image %s not found locally. Attempting to pull...\n", emoji.DownArrow, image)
+	pullCmd := exec.Command("docker", "pull", image)
+	pullCmd.Stdout = os.Stdout
+	pullCmd.Stderr = os.Stderr
+	if err := pullCmd.Run(); err != nil {
+		return "", fmt.Errorf("failed to pull image %s: %w", image, err)
+	}
+
+	inspectCmd = exec.Command("docker", "inspect", "--format={{.Id}}", image)
+	output, err = inspectCmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to inspect image after pull: %w", err)
+	}
+
 	return strings.TrimSpace(string(output)), nil
 }
