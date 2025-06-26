@@ -7,6 +7,8 @@ Coral (COmposable Robotics Abstraction Layer) represents an effort toward softwa
 
 Just as coral reefs support tremendous biodiversity (25% of marine species while covering less than 1% of the sea floor), Coral provides the scaffolding necessary to support a rich ecosystem of robotics software that enables scalable solutions across a wide range of real-world applications.
 
+Users are referred to [coral_examples](https://github.com/swanbeck/coral_examples.git) for examples of practical applications enabled by Coral.
+
 <!-- The Coral CLI is designed to simplify working with Docker images that are compatible with the Coral ecosystem. It wraps the Docker CLI and extends it with several helpful commands.  -->
 
 ---
@@ -149,8 +151,8 @@ produces the following partial output:
 📦 Extracting dependencies from image coral-whisper:humble-amd64 for service whisper
 📦 Extracting dependencies from image coral-gtts:humble-amd64 for service gtts
 📦 Extracting dependencies from image coral-dynamic_runner:humble-amd64 for service dynamic_runner
-Writing merged compose file to: /home/coral/config/lib/compose/coral-1747512980139421567.yaml
-Starting instance with name: coral-1747512980139421567
+Writing compose file /home/coral/config/lib/compose/coral-1747512980139421567.yaml
+Starting instance coral-1747512980139421567
 🧠 Starting skillsets (3): [llama whisper gtts]
 [+] Running 3/3
  ✔ Container coral-1747512980139421567-whisper-1  Started                                      0.4s 
