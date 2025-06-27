@@ -74,7 +74,7 @@ services:
 ```
 These variables must be set because Coral launches Docker containers using the host system's Docker installation. 
 
-Once the proper environment variables are set, a Docker compose file can be created to start the relevant containers. The compose file to be run can be specified explicitly with `-f` or a local file `(docker-)compose.y(a)ml` will be used if exists and not overriden. As an example, here is a valid Docker compose file that is compatible with Coral launch:
+Once the proper environment variables are set, a Docker compose file can be created to start the relevant containers. The compose file to be run can be specified explicitly with `-f` or a local file `(docker-)compose.y(a)ml` will be used if it exists and is not explicitly overridden. As an example, here is a valid Docker compose file that is compatible with Coral launch:
 ```yaml
 # compose.yaml
 x-coral-config:
@@ -155,13 +155,13 @@ Writing compose file /home/coral/config/lib/compose/coral-1747512980139421567.ya
 Starting instance coral-1747512980139421567
 🧠 Starting skillsets (3): [llama whisper gtts]
 [+] Running 3/3
- ✔ Container coral-1747512980139421567-whisper-1  Started                                      0.4s 
- ✔ Container coral-1747512980139421567-llama-1    Started                                      0.4s
- ✔ Container coral-1747512980139421567-gtts-1     Started                                      0.2s
+ ✔ Container coral-1747512980139421567-whisper-1  Started
+ ✔ Container coral-1747512980139421567-llama-1    Started
+ ✔ Container coral-1747512980139421567-gtts-1     Started
 🚀 Starting executors (1): [dynamic_runner]
 Delaying 1s before starting executors...
 [+] Running 1/1
- ✔ Container coral-1747512980139421567-dynamic_runner-1  Started                               0.2s
+ ✔ Container coral-1747512980139421567-dynamic_runner-1  Started
  ...
 ```
 
@@ -184,7 +184,7 @@ coral shutdown -g group1
 Shutdown can also be controlled via an instance name that is generated and printed on Coral launch with `-n` (`coral-1747512980139421567` in the example output above) or using a `--handle` provided when Coral launch is run. The `-a` flag can also be used to shutdown all running Coral instances.
 
 #### Verify
-When building a Coral-comptible Docker image, it is useful to test whether the image is compliant with the assumptions that are made with Coral launch. To do this, you can use the command
+When building a Coral-compatible Docker image, it is useful to test whether the image is compliant with the assumptions that are made with Coral launch. To do this, you can use the command
 ```bash
 coral verify <IMAGE_NAME>:<IMAGE_TAG>
 ```
