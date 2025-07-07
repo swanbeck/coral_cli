@@ -78,7 +78,27 @@ func verify(imageName string, envFile string) error {
 	// validate required environment vars
 	libPath, ok := env["CORAL_LIB"]
 	if !ok || strings.TrimSpace(libPath) == "" {
-		return fmt.Errorf("environment variable CORAL_LIB is not set or empty")
+		libPath, err = filepath.Abs("./lib")
+		if err != nil {
+			return fmt.Errorf("failed to resolve ./lib path: %w", err)
+		}
+		_, err = os.Stat(libPath)
+		if os.IsNotExist(err) {
+			err := os.Mkdir(libPath, 0755)
+			if err != nil {
+				return fmt.Errorf("creating directory: %v", err)
+			}
+		} else if err != nil {
+			return fmt.Errorf("checking directory: %v", err)
+		}
+	} else {
+		_, err = os.Stat(libPath)
+		if os.IsNotExist(err) {
+			return fmt.Errorf("CORAL_LIB path %q does not exist", libPath)
+		}
+		if err != nil {
+			return fmt.Errorf("checking CORAL_LIB path %q: %v", libPath, err)
+		}
 	}
 
 	isDocker := env["CORAL_IS_DOCKER"]
@@ -105,6 +125,10 @@ func verify(imageName string, envFile string) error {
 	// save the path that was written for deletion at end
 	deleteVerifyEntrypoint := verifyEntrypoint
 	defer func() {
+		// check if file exists before attempting to remove
+		if _, err := os.Stat(deleteVerifyEntrypoint); os.IsNotExist(err) {
+			return
+		}
 		if err := os.Remove(deleteVerifyEntrypoint); err != nil {
 			fmt.Printf("failed to remove temp script: %v\n", err)
 		}
