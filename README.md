@@ -3,7 +3,7 @@
 </div>
 
 # Coral CLI
-Coral (COmposable Robotics Abstraction Layer) represents an effort toward software for robotics applications that is truly composable. Coral draws inspiration from functional programming to create reconfigurable systems composed of modular and reusable atomic components with minimal functional interfaces. This is achieved using behavior trees and containerization.
+Coral (COmpositional Robotics Abstraction Layer) represents an effort toward software for robotics applications that is truly compositional. Coral draws inspiration from functional programming to create reconfigurable systems composed of modular and reusable atomic components with minimal functional interfaces. This is achieved using behavior trees and containerization.
 
 Just as coral reefs support tremendous biodiversity (25% of marine species while covering less than 1% of the sea floor), Coral provides the scaffolding necessary to support a rich ecosystem of robotics software that enables scalable solutions across a wide range of real-world applications.
 
@@ -14,23 +14,23 @@ Users are referred to [coral_examples](https://github.com/swanbeck/coral_example
 ---
 ### Building
 To build the Coral CLI, start by [installing Go](https://go.dev/doc/install). Once installation is verified, navigate to the [root directory](.) and run: 
-```bash
+```
 go build
 ```
 To create an executable `coral`, instead run:
-```bash
+```
 go build -o ./coral
 ```
 You can then start running commands with `./coral`, i.e.
-```bash
+```
 ./coral
 ```
 Optionally, consider moving the `coral` executable to a location on your `PATH` so it can be run from anywhere:
-```bash
+```
 sudo mv ./coral /usr/local/bin/
 ```
 Verify it can be found with
-```bash
+```
 coral
 ```
 which should print out
@@ -141,7 +141,7 @@ Importantly, Coral assumes that the provided compose file uses the `profiles` ta
 
 For example, running the command 
 
-```bash
+```
 coral launch
 ```
 produces the following partial output:
@@ -166,7 +166,7 @@ Delaying 1s before starting executors...
 ```
 
 When running with `coral launch`, it is often useful to assign a `-g` group or `--handle` to a running instance. Handles are meant to be unique for a single instance and groups allow you to control several instances together. These are especially useful when running in detached mode
-```bash
+```
 coral launch -g group1 -d
 ```
 
@@ -174,18 +174,18 @@ to enable easy shutdown.
 
 #### Shutdown
 Coral shutdown exists to nicely kill and clean up after Coral launch commands that are run in detached mode. For example, if a launch command is run
-```bash
+```
 coral launch -g group1 -d
 ```
 it can be nicely killed and cleaned up with
-```bash
+```
 coral shutdown -g group1
 ```
 Shutdown can also be controlled via an instance name that is generated and printed on Coral launch with `-n` (`coral-1747512980139421567` in the example output above) or using a `--handle` provided when Coral launch is run. The `-a` flag can also be used to shutdown all running Coral instances.
 
 #### Verify
 When building a Coral-compatible Docker image, it is useful to test whether the image is compliant with the assumptions that are made with Coral launch. To do this, you can use the command
-```bash
+```
 coral verify <IMAGE_NAME>:<IMAGE_TAG>
 ```
 to test whether the provided image is compatible. 
