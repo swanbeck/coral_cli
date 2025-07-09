@@ -37,6 +37,7 @@ var (
 	launchDetached      bool
 	launchKill          bool
 	launchExecutorDelay float32
+	launchProfiles      []string
 )
 
 func init() {
@@ -47,13 +48,14 @@ func init() {
 	launchCmd.Flags().BoolVarP(&launchDetached, "detached", "d", false, "Launch in detached mode")
 	launchCmd.Flags().BoolVar(&launchKill, "kill", true, "Forcefully kills instances before removing them")
 	launchCmd.Flags().Float32Var(&launchExecutorDelay, "executor-delay", 1.0, "Delay in seconds before starting executors; used to provide small delay for drivers and skillsets to start before executors")
+	launchCmd.Flags().StringSliceVarP(&launchProfiles, "profile", "p", []string{}, "List of profiles to launch (drivers, skillsets, executors); if not specified, all profiles will be launched")
 }
 
 var launchCmd = &cobra.Command{
 	Use:   "launch",
 	Short: "Extract and run Coral-compatible Docker Compose services",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return launch(launchComposePath, launchEnvFile, launchHandle, launchGroup, launchDetached, launchKill, launchExecutorDelay)
+		return launch(launchComposePath, launchEnvFile, launchHandle, launchGroup, launchDetached, launchKill, launchExecutorDelay, launchProfiles)
 	},
 }
 
@@ -63,7 +65,7 @@ type containerInfo struct {
 	Service string
 }
 
-func launch(composePath string, envFile string, handle string, group string, detached, kill bool, executorDelay float32) error {
+func launch(composePath string, envFile string, handle string, group string, detached, kill bool, executorDelay float32, profilesToStart []string) error {
 	// load and resolve environment
 	env := make(map[string]string)
 	resolvedEnvFile, err := io.ResolveEnvFile(envFile)
@@ -160,7 +162,7 @@ func launch(composePath string, envFile string, handle string, group string, det
 		extractionEntrypoint = filepath.Join(hostLibPath, "extract.sh")
 	}
 
-	mergedCompose, profilesMap, err := buildMergedCompose(parsedCompose, libPath, hostLibPath, extractionEntrypoint)
+	mergedCompose, profilesMap, err := buildMergedCompose(parsedCompose, libPath, hostLibPath, extractionEntrypoint, profilesToStart)
 	if err != nil {
 		return err
 	}
@@ -204,7 +206,7 @@ func launch(composePath string, envFile string, handle string, group string, det
 	return runForeground(profiles, instanceName, outputPath, kill, executorDelay, profilesMap)
 }
 
-func buildMergedCompose(cf *compose.ComposeFile, lib string, hostLib string, extractionEntrypoint string) (compose.RawCompose, map[string][]string, error) {
+func buildMergedCompose(cf *compose.ComposeFile, lib string, hostLib string, extractionEntrypoint string, profilesToStart []string) (compose.RawCompose, map[string][]string, error) {
 	rawCompose, err := cf.ToMap()
 	if err != nil {
 		return nil, nil, fmt.Errorf("converting to raw: %w", err)
@@ -224,14 +226,19 @@ func buildMergedCompose(cf *compose.ComposeFile, lib string, hostLib string, ext
 		image := svc["image"].(string)
 
 		profs := extractServiceProfiles(svc)
-		for _, p := range profs {
-			profiles[p] = append(profiles[p], name)
+
+		if len(profilesToStart) > 0 && !hasIntersection(profs, profilesToStart) {
+			continue
 		}
 
 		validProfiles := []string{"drivers", "skillsets", "executors"}
 		if !hasIntersection(profs, validProfiles) {
 			fmt.Printf("%s  Skipping service %s as it does not match any valid profiles %v\n", emoji.Warning, name, validProfiles)
 			continue
+		}
+
+		for _, p := range profs {
+			profiles[p] = append(profiles[p], name)
 		}
 
 		fmt.Printf("%s Extracting dependencies from image %s for service %s\n", emoji.Package, image, name)
@@ -339,7 +346,6 @@ func orderedProfiles(input []string) []string {
 	seen := make(map[string]bool)
 	var result []string
 
-	// append in defined order if present
 	for _, key := range []string{"drivers", "skillsets", "executors"} {
 		for _, profile := range input {
 			if profile == key && !seen[profile] {
@@ -348,13 +354,6 @@ func orderedProfiles(input []string) []string {
 			}
 		}
 	}
-
-	// // for now excluding other profiles
-	// for _, profile := range input {
-	// 	if !seen[profile] {
-	// 		result = append(result, profile)
-	// 	}
-	// }
 
 	return result
 }
