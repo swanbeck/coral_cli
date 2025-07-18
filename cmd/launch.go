@@ -157,7 +157,7 @@ func launch(composePath string, envFile string, handle string, group string, det
 		}
 	}()
 
-	// if docker, the entrypint must be provided wrt the host filesystem
+	// if docker, the entrypoint must be provided wrt the host filesystem
 	if isDocker == "true" {
 		extractionEntrypoint = filepath.Join(hostLibPath, "extract.sh")
 	}

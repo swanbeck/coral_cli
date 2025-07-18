@@ -11,7 +11,7 @@ import (
 var rootCmd = &cobra.Command{
 	Use:   "coral",
 	Short: "Coral wraps Docker for the Coral ecosystem",
-	// disable cobra's built-in subcommand parsing to allow coral kill or anything like that that is not overwritten to directly call docker kill or whatever
+	// disable cobra's built-in subcommand parsing to allow anything that is not overwritten to directly call docker
 	DisableFlagParsing: true,
 	Args:               cobra.ArbitraryArgs,
 	Run: func(cmd *cobra.Command, args []string) {
@@ -19,7 +19,7 @@ var rootCmd = &cobra.Command{
 			_ = cmd.Help()
 			return
 		}
-		// we need to handle base docker commands (or commands we want to treat like docker commands but with extra pre- or post-processing) explictly so all flags are passed along to those docker commands rather than being parsed by cobra
+		// we need to handle base docker commands (or commands we want to treat like docker commands but with extra pre- or post-processing) explictly so all flags are passed along to docker rather than being parsed by cobra
 		var err error
 
 		switch args[0] {
@@ -27,9 +27,8 @@ var rootCmd = &cobra.Command{
 			err = imagesCmd.RunE(cmd, args[1:])
 		case "ps":
 			err = psCmd.RunE(cmd, args[1:])
-		default: // forward everything else that didn't come here or get parsed by cobra to docker
-			runDockerCommand(args...)
-			return
+		default:
+			err = runDockerCommand(args...)
 		}
 
 		if err != nil {
@@ -44,23 +43,22 @@ func Execute() {
 	}
 }
 
-func runDockerCommand(args ...string) {
+func runDockerCommand(args ...string) error {
 	dockerCmd := exec.Command("docker", args...)
 	dockerCmd.Stdin = os.Stdin
 	dockerCmd.Stdout = os.Stdout
 	dockerCmd.Stderr = os.Stderr
 
 	if err := dockerCmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "docker %v failed: %v\n", args, err)
-		os.Exit(1)
+		fmt.Fprintf(os.Stderr, "coral %v failed: %v\n", args, err)
+		return err
 	}
+
+	return nil
 }
 
 func init() {
-	// this makes the default docker behavior not work
-	// rootCmd.AddCommand(imagesCmd)
-
-	// these do not overload default docker commands so they belong here instead of above
+	// commands that do not overload docker commands belong here
 	rootCmd.AddCommand(launchCmd)
 	rootCmd.AddCommand(shutdownCmd)
 	rootCmd.AddCommand(verifyCmd)

@@ -53,7 +53,6 @@ func RemoveInstanceFiles(instanceName string) error {
 
 func tryRemoveFileAndDirectory(filePath string) bool {
 	if err := os.Remove(filePath); err != nil {
-		// fmt.Printf("Failed to remove file %s: %v\n", filePath, err)
 		return false
 	}
 	dir := filepath.Dir(filePath)
@@ -95,10 +94,8 @@ func cleanFilesFromLog(logPath, baseDir string) error {
 		}
 
 		if info.IsDir() {
-			// try to remove if it's already a dir and empty
 			tryRemoveDirIfEmpty(absPath)
 		} else {
-			// remove file and possibly its parent
 			tryRemoveFileAndDirectory(absPath)
 		}
 	}
@@ -130,7 +127,6 @@ func cleanupFromCompose(composePath, libPath string) error {
 		if !ok || imageName == "" {
 			continue
 		}
-		// fmt.Printf("Found image %s for service %s\n", imageName, name)
 
 		// get the image ID (to locate the extracted docker and log files)
 		imageID, err := extractor.GetImageID(imageName)

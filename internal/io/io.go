@@ -25,6 +25,5 @@ func ResolveEnvFile(userPath string) (string, error) {
 	if _, err := os.Stat(".env"); err == nil {
 		return ".env", nil
 	}
-	// just returning empty string if no .env file
 	return "", nil
 }
