@@ -1,8 +1,18 @@
 <div align="center">
-  <img src="./.asset/coral.svg" width="30%">
+    <div align="center">
+      <img src="./.asset/coral.svg" width="20%">
+    </div>
+    <h1>Coral CLI</h1>
+    <a href="https://github.com/swanbeck/coral_cli/blob/main/"><img src="https://img.shields.io/github/last-commit/swanbeck/coral_cli" /></a>
+    <a href="https://github.com/swanbeck/coral_cli/releases"><img src="https://img.shields.io/github/v/release/swanbeck/coral_cli?label=version" /></a>
+    <a href="https://github.com/swanbeck/coral_cli/blob/main/LICENSE"><img src="https://img.shields.io/github/license/swanbeck/coral_cli" /></a>
+    <a href="https://github.com/swanbeck/coral_cli/blob/main/"><img src="https://img.shields.io/badge/Linux-FCC624?logo=linux&logoColor=black" /></a>
+    <!-- <a href=""><img src="https://img.shields.io/badge/Paper-B34700?logo=google-scholar&logoColor=white" /></a> -->
+    <br />
+    <br />
 </div>
 
-# Coral CLI
+<!-- # Coral CLI -->
 Coral (COmpositional Robotics Abstraction Layer) represents an effort toward software for robotics applications that is truly compositional. Coral draws inspiration from functional programming to create reconfigurable systems composed of modular and reusable atomic components with minimal functional interfaces. This is achieved using behavior trees and containerization.
 
 Just as coral reefs support tremendous biodiversity (25% of marine species while covering less than 1% of the sea floor), Coral provides the scaffolding necessary to support a rich ecosystem of robotics software that enables scalable solutions across a wide range of real-world applications.
