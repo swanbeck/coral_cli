@@ -76,6 +76,8 @@ func verify(imageName string, envFile string) error {
 	}
 
 	// validate required environment vars
+	var madeLibDir bool = false
+
 	libPath, ok := env["CORAL_LIB"]
 	if !ok || strings.TrimSpace(libPath) == "" {
 		libPath, err = filepath.Abs("./lib")
@@ -88,6 +90,7 @@ func verify(imageName string, envFile string) error {
 			if err != nil {
 				return fmt.Errorf("creating directory: %v", err)
 			}
+			madeLibDir = true
 		} else if err != nil {
 			return fmt.Errorf("checking directory: %v", err)
 		}
@@ -100,6 +103,14 @@ func verify(imageName string, envFile string) error {
 			return fmt.Errorf("checking CORAL_LIB path %q: %v", libPath, err)
 		}
 	}
+
+	defer func() {
+		if madeLibDir {
+			if err := os.RemoveAll(libPath); err != nil {
+				fmt.Printf("failed to remove temporary lib directory %q: %v\n", libPath, err)
+			}
+		}
+	}()
 
 	isDocker := env["CORAL_IS_DOCKER"]
 	var hostLibPath string
@@ -161,22 +172,21 @@ func verify(imageName string, envFile string) error {
 		tempDir = filepath.Join(hostLibPath, relPath)
 	}
 
-	// hardcoding these to be 1000 because some containers that will run the verify command do need to be run as root (0:0)
-	uid := 1000 //os.Getuid()
-	gid := 1000 //os.Getgid()
+	uid := os.Getuid()
+	gid := os.Getgid()
 
 	// make sure /ws exists and has proper ownership
 	checkCmd := exec.Command("docker", "run", "--rm",
 		"--entrypoint", "stat",
 		imageName,
-		"-c", "%u:%g", "/ws")
+		"-c", "%a", "/ws")
 	output, err := checkCmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to stat /ws in container: %w\nOutput: %s", err, string(output))
 	}
-	owner := strings.TrimSpace(string(output))
-	if owner != fmt.Sprintf("%d:%d", uid, gid) {
-		return fmt.Errorf("/ws in container %s has wrong ownership: got %s, expected %d:%d", imageName, owner, uid, gid)
+	perm := strings.TrimSpace(string(output))
+	if perm != "777" {
+		return fmt.Errorf("/ws in container %s has wrong permissions: got %s, expected 777", imageName, perm)
 	}
 	checkDirCmd := exec.Command("docker", "run", "--rm",
 		"--entrypoint", "sh",
@@ -192,7 +202,7 @@ func verify(imageName string, envFile string) error {
 		return fmt.Errorf("failed to extract export dependencies from image; recommend checking ownership of export files inside the container: %w", err)
 	}
 
-	// walk the temp dir and make sure the files are owned by the user (usiing local file system temp dir)
+	// walk the temp dir and make sure the files are owned by the user (using local file system temp dir)
 	var mismatches []string
 	err = filepath.Walk(deleteTempDir, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
