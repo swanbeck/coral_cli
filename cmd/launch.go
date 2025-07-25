@@ -148,7 +148,6 @@ func launch(composePath string, envFile string, handle string, group string, det
 	// save the path that was written for deletion at end
 	deleteExtractionEntrypoint := extractionEntrypoint
 	defer func() {
-		// check if file exists before attempting to remove
 		if _, err := os.Stat(deleteExtractionEntrypoint); os.IsNotExist(err) {
 			return
 		}
@@ -160,6 +159,11 @@ func launch(composePath string, envFile string, handle string, group string, det
 	// if docker, the entrypoint must be provided wrt the host filesystem
 	if isDocker == "true" {
 		extractionEntrypoint = filepath.Join(hostLibPath, "extract.sh")
+	}
+
+	err = checkImagesLocal(parsedCompose, profilesToStart)
+	if err != nil {
+		return fmt.Errorf("checking images: %w", err)
 	}
 
 	mergedCompose, profilesMap, err := buildMergedCompose(parsedCompose, libPath, hostLibPath, extractionEntrypoint, profilesToStart)
@@ -191,10 +195,8 @@ func launch(composePath string, envFile string, handle string, group string, det
 	}
 
 	fmt.Printf("Starting instance %s\n", instanceName)
-	// logProfileSummary(profilesMap)
 
 	profiles = orderedProfiles(profiles)
-
 	if len(profiles) == 0 {
 		return fmt.Errorf("no valid profiles to run")
 	}
@@ -204,6 +206,24 @@ func launch(composePath string, envFile string, handle string, group string, det
 	}
 
 	return runForeground(profiles, instanceName, outputPath, kill, executorDelay, profilesMap)
+}
+
+func checkImagesLocal(cf *compose.ComposeFile, profilesToStart []string) error {
+	for name, svc := range cf.Services {
+		image := svc["image"].(string)
+
+		profs := extractServiceProfiles(svc)
+
+		if len(profilesToStart) > 0 && !hasIntersection(profs, profilesToStart) {
+			continue
+		}
+
+		_, err := extractor.GetImageID(image)
+		if err != nil {
+			return fmt.Errorf("checking image %s used in service %s: %w", image, name, err)
+		}
+	}
+	return nil
 }
 
 func buildMergedCompose(cf *compose.ComposeFile, lib string, hostLib string, extractionEntrypoint string, profilesToStart []string) (compose.RawCompose, map[string][]string, error) {
