@@ -37,4 +37,4 @@ else
 fi
 
 # set permissions for the export path
-chown -R 1000:1000 "$EXPORT_PATH" 2>/dev/null || true
+chown -R "$(id -u):$(id -g)" "$EXPORT_PATH" 2>/dev/null || true
