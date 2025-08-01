@@ -268,36 +268,40 @@ func buildMergedCompose(cf *compose.ComposeFile, lib string, hostLib string, ext
 		}
 
 		extractedPath := filepath.Join(lib, "docker", imageID+".yaml")
+		var mergedSvc map[string]interface{}
+		baseSvc := rawServices[name].(map[string]interface{})
+
 		if _, err := os.Stat(extractedPath); err == nil {
 			extracted, err := compose.LoadRawYAML(extractedPath)
 			if err != nil {
 				return nil, nil, fmt.Errorf("parsing extracted compose for %s: %w", name, err)
 			}
 
-			// replace relative volume paths with absolute paths
-			mergedSvc := compose.MergeServiceConfigs(rawServices[name].(map[string]interface{}), extracted)
-			if volumes, ok := mergedSvc["volumes"].([]interface{}); ok {
-				for i, v := range volumes {
-					volStr, ok := v.(string)
-					if !ok {
-						continue
-					}
-					parts := strings.SplitN(volStr, ":", 2)
-					if len(parts) == 2 {
-						hostPath := parts[0]
-						if !filepath.IsAbs(hostPath) && !strings.HasPrefix(hostPath, "${") {
-							absPath, err := filepath.Abs(hostPath)
-							if err == nil {
-								volumes[i] = fmt.Sprintf("%s:%s", absPath, parts[1])
-							}
+			mergedSvc = compose.MergeServiceConfigs(rawServices[name].(map[string]interface{}), extracted)
+		} else {
+			mergedSvc = baseSvc
+		}
+
+		if volumes, ok := mergedSvc["volumes"].([]interface{}); ok {
+			for i, v := range volumes {
+				volStr, ok := v.(string)
+				if !ok {
+					continue
+				}
+				parts := strings.SplitN(volStr, ":", 2)
+				if len(parts) == 2 {
+					hostPath := parts[0]
+					if !filepath.IsAbs(hostPath) && !strings.HasPrefix(hostPath, "${") {
+						absPath, err := filepath.Abs(hostPath)
+						if err == nil {
+							volumes[i] = fmt.Sprintf("%s:%s", absPath, parts[1])
 						}
 					}
 				}
 			}
-			merged["services"].(map[string]interface{})[name] = mergedSvc
-		} else {
-			merged["services"].(map[string]interface{})[name] = rawServices[name]
 		}
+
+		merged["services"].(map[string]interface{})[name] = mergedSvc
 	}
 
 	return merged, profiles, nil

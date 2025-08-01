@@ -196,6 +196,15 @@ func verify(imageName string, envFile string) error {
 		return fmt.Errorf("/ws does not exist or is not a directory in image %q", imageName)
 	}
 
+	// make sure /export does not exist
+	checkExportCmd := exec.Command("docker", "run", "--rm",
+		"--entrypoint", "sh",
+		imageName,
+		"-c", "test ! -d /export")
+	if err := checkExportCmd.Run(); err != nil {
+		return fmt.Errorf("/export directory already exists in image %q; please remove it", imageName)
+	}
+
 	// run the extraction step
 	_, err = extractor.ExtractImage(imageName, "coral", tempDir, verifyEntrypoint)
 	if err != nil {
