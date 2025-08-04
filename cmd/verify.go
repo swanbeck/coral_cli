@@ -172,8 +172,14 @@ func verify(imageName string, envFile string) error {
 		tempDir = filepath.Join(hostLibPath, relPath)
 	}
 
-	uid := os.Getuid()
-	gid := os.Getgid()
+	uid, err := io.GetUID()
+	if err != nil {
+		return fmt.Errorf("failed to get UID: %w", err)
+	}
+	gid, err := io.GetGID()
+	if err != nil {
+		return fmt.Errorf("failed to get GID: %w", err)
+	}
 
 	// make sure /ws exists and has proper ownership
 	checkCmd := exec.Command("docker", "run", "--rm",
