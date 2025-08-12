@@ -145,6 +145,15 @@ func verify(imageName string, envFile string) error {
 		}
 	}()
 
+	uid, err := io.GetUID()
+	if err != nil {
+		return fmt.Errorf("failed to get UID: %w", err)
+	}
+	gid, err := io.GetGID()
+	if err != nil {
+		return fmt.Errorf("failed to get GID: %w", err)
+	}
+
 	// if docker, the entrypoint must be provided wrt the host filesystem
 	if isDocker == "true" {
 		verifyEntrypoint = filepath.Join(hostLibPath, "extract.sh")
@@ -161,6 +170,10 @@ func verify(imageName string, envFile string) error {
 			fmt.Printf("failed to remove tempDir: %v\n", err)
 		}
 	}()
+	err = os.Chown(tempDir, uid, gid)
+	if err != nil {
+		return fmt.Errorf("failed to change ownership of %s to UID %d and GID %d: %w", tempDir, uid, gid, err)
+	}
 
 	// if docker, the temp dir must be provided wrt the host filesystem
 	if isDocker == "true" {
@@ -171,9 +184,6 @@ func verify(imageName string, envFile string) error {
 		}
 		tempDir = filepath.Join(hostLibPath, relPath)
 	}
-
-	uid := os.Getuid()
-	gid := os.Getgid()
 
 	// make sure /ws exists and has proper ownership
 	checkCmd := exec.Command("docker", "run", "--rm",

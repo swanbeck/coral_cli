@@ -3,6 +3,7 @@ package io
 import (
 	"fmt"
 	"os"
+	"strconv"
 )
 
 func ResolveComposeFile(userPath string) (string, error) {
@@ -26,4 +27,20 @@ func ResolveEnvFile(userPath string) (string, error) {
 		return ".env", nil
 	}
 	return "", nil
+}
+
+func GetUID() (int, error) {
+	uid := os.Getenv("CORAL_UID")
+	if uid == "" {
+		return os.Getuid(), nil
+	}
+	return strconv.Atoi(uid)
+}
+
+func GetGID() (int, error) {
+	gid := os.Getenv("CORAL_GID")
+	if gid == "" {
+		return os.Getgid(), nil
+	}
+	return strconv.Atoi(gid)
 }

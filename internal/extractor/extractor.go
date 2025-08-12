@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/enescakir/emoji"
+
+	"coral_cli/internal/io"
 )
 
 func ExtractImage(image string, name string, libPath string, extractionEntrypoint string) (string, error) {
@@ -16,6 +18,15 @@ func ExtractImage(image string, name string, libPath string, extractionEntrypoin
 	}
 	imageID = imageID + "-coral-" + name
 
+	uid, err := io.GetUID()
+	if err != nil {
+		return "", fmt.Errorf("failed to get UID: %w", err)
+	}
+	gid, err := io.GetGID()
+	if err != nil {
+		return "", fmt.Errorf("failed to get GID: %w", err)
+	}
+
 	cmd := exec.Command(
 		"docker", "run", "--rm",
 		"--name", "coral-"+name,
@@ -23,7 +34,7 @@ func ExtractImage(image string, name string, libPath string, extractionEntrypoin
 		"-e", "EXPORT_PATH=/export",
 		"-v", fmt.Sprintf("%s:/export", libPath),
 		"-v", fmt.Sprintf("%s:/extract.sh", extractionEntrypoint),
-		"--user", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()),
+		"--user", fmt.Sprintf("%d:%d", uid, gid),
 		"--entrypoint", "/extract.sh",
 		image,
 	)
