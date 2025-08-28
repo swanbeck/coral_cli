@@ -13,7 +13,7 @@
 </div>
 
 # Coral CLI
-Coral (COmpositional Robotics Abstraction Layer) represents an effort toward software for robotics applications that is truly compositional. Coral draws inspiration from functional programming to create reconfigurable systems composed of modular and reusable atomic components with minimal functional interfaces. This is achieved using behavior trees and containerization.
+Coral (COmposable Robotics Abstraction Layer) represents an effort toward truly composable software for robotics applications. Coral draws inspiration from functional programming to create reconfigurable systems composed of modular and reusable atomic components with minimal functional interfaces. This is achieved using behavior trees and containerization.
 
 Just as coral reefs support tremendous biodiversity (25% of marine species while covering less than 1% of the sea floor), Coral provides the scaffolding necessary to support a rich ecosystem of robotics software that enables scalable solutions across a wide range of real-world applications.
 
@@ -45,7 +45,7 @@ coral
 ```
 which should print out
 ```
-Coral wraps Docker for the Coral ecosystem
+Coral provides and manages an ecosystem of composable robotics software
 
 Usage:
   coral [flags]

@@ -10,7 +10,7 @@ import (
 
 var rootCmd = &cobra.Command{
 	Use:   "coral",
-	Short: "Coral provides and manages an ecosystem of compositional robotics software",
+	Short: "Coral provides and manages an ecosystem of composable robotics software",
 	// disable cobra's built-in subcommand parsing to allow anything that is not overwritten to directly call docker
 	DisableFlagParsing: true,
 	Args:               cobra.ArbitraryArgs,
