@@ -210,7 +210,15 @@ func launch(composePath string, envFile string, handle string, group string, det
 
 func checkImagesLocal(cf *compose.ComposeFile, profilesToStart []string) error {
 	for name, svc := range cf.Services {
-		image := svc["image"].(string)
+		raw, ok := svc["image"]
+		if !ok || raw == nil {
+			return fmt.Errorf("missing required field 'image' in service: %#v", svc)
+		}
+
+		image, ok := raw.(string)
+		if !ok {
+			return fmt.Errorf("expected string for 'image', got %T (%#v)", raw, raw)
+		}
 
 		profs := extractServiceProfiles(svc)
 
