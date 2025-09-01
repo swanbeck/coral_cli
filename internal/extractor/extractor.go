@@ -52,8 +52,20 @@ func GetImageID(image string) (string, error) {
 		return strings.TrimSpace(string(output)), nil
 	}
 
-	fmt.Printf("%s  Image %s not found locally. Attempting to pull...\n", emoji.DownArrow, image)
-	pullCmd := exec.Command("docker", "pull", image)
+	fmt.Printf("%s Image %s not found locally. Attempting to pull...\n", emoji.Package, image)
+	tmpFile, err := os.CreateTemp("", "compose-*.yml")
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(tmpFile.Name())
+
+	composeYAML := fmt.Sprintf("services:\n  coral:\n    image: %s\n", image)
+	if _, err := tmpFile.WriteString(composeYAML); err != nil {
+		return "", err
+	}
+	tmpFile.Close()
+
+	pullCmd := exec.Command("docker", "compose", "-f", tmpFile.Name(), "pull")
 	pullCmd.Stdout = os.Stdout
 	pullCmd.Stderr = os.Stderr
 	if err := pullCmd.Run(); err != nil {

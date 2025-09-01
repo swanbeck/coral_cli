@@ -17,6 +17,7 @@ import (
 
 	"github.com/enescakir/emoji"
 	"github.com/fatih/color"
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"coral_cli/internal/cleanup"
@@ -166,6 +167,9 @@ func launch(composePath string, envFile string, handle string, group string, det
 		return fmt.Errorf("checking images: %w", err)
 	}
 
+	instanceName := fmt.Sprintf("coral-%s", uuid.New())
+	fmt.Printf("%s Launching new instance %s...\n", emoji.Rocket, instanceName)
+
 	mergedCompose, profilesMap, err := buildMergedCompose(parsedCompose, libPath, hostLibPath, extractionEntrypoint, profilesToStart)
 	if err != nil {
 		return err
@@ -183,7 +187,6 @@ func launch(composePath string, envFile string, handle string, group string, det
 	}
 
 	// write merged compose
-	instanceName := fmt.Sprintf("coral-%d", time.Now().UnixNano())
 	outputPath := filepath.Join(libPath, "compose", instanceName+".yaml")
 	if err := writeComposeToDisk(outputPath, mergedCompose); err != nil {
 		return err
@@ -193,8 +196,6 @@ func launch(composePath string, envFile string, handle string, group string, det
 	if err := writeInstanceMetadata(instanceName, outputPath, libPath, handle, group); err != nil {
 		return err
 	}
-
-	fmt.Printf("Starting instance %s\n", instanceName)
 
 	profiles = orderedProfiles(profiles)
 	if len(profiles) == 0 {
@@ -269,11 +270,11 @@ func buildMergedCompose(cf *compose.ComposeFile, lib string, hostLib string, ext
 			profiles[p] = append(profiles[p], name)
 		}
 
-		fmt.Printf("%s Extracting dependencies from image %s for service %s\n", emoji.Package, image, name)
 		imageID, err := extractor.ExtractImage(image, name, imageLib, extractionEntrypoint)
 		if err != nil {
-			return nil, nil, fmt.Errorf("extracting image: %w", err)
+			return nil, nil, fmt.Errorf("extracting image %s for service %s: %w", image, name, err)
 		}
+		fmt.Printf("%s Extracted dependencies from image %s for service %s\n", emoji.IncomingEnvelope, image, name)
 
 		extractedPath := filepath.Join(lib, "docker", imageID+".yaml")
 		var mergedSvc map[string]interface{}
@@ -343,15 +344,14 @@ func extractServiceProfiles(service map[string]interface{}) []string {
 }
 
 func extractProfileNames(profiles map[string][]string) []string {
-	var keys []string
+	var profileNames []string
 	for k := range profiles {
-		keys = append(keys, k)
+		profileNames = append(profileNames, k)
 	}
-	return keys
+	return profileNames
 }
 
 func writeComposeToDisk(path string, compose_data compose.RawCompose) error {
-	fmt.Printf("Writing compose file %s\n", path)
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("creating output dir: %w", err)
 	}
@@ -390,16 +390,22 @@ func orderedProfiles(input []string) []string {
 	return result
 }
 
+func assignEmojiFromProfile(profile string) emoji.Emoji {
+	symbol := emoji.Toolbox
+	switch profile {
+	case "drivers":
+		symbol = emoji.VideoGame
+	case "skillsets":
+		symbol = emoji.Brain
+	case "executors":
+		symbol = emoji.Seedling
+	}
+	return symbol
+}
+
 func runDetached(profiles []string, instanceName, composePath string, executorDelay float32, profilesMap map[string][]string) error {
 	for _, profile := range profiles {
-		symbol := emoji.Toolbox
-		if profile == "drivers" {
-			symbol = emoji.VideoGame
-		} else if profile == "skillsets" {
-			symbol = emoji.Brain
-		} else if profile == "executors" {
-			symbol = emoji.Rocket
-		}
+		symbol := assignEmojiFromProfile(profile)
 		fmt.Printf("%s Starting %s (%d): %v\n", symbol, profile, len(profilesMap[profile]), profilesMap[profile])
 
 		// optional delay before executors
@@ -430,7 +436,7 @@ func runForeground(profiles []string, instanceName string, composePath string, k
 			signal.Ignore(syscall.SIGINT, syscall.SIGTERM)
 
 			cleanup.StopCompose(instanceName, composePath, kill, profiles)
-			fmt.Printf("Cleaning up instance %s\n", instanceName)
+			fmt.Printf("Cleaning up instance %s...\n", instanceName)
 			cleanup.RemoveInstanceFiles(instanceName)
 			fmt.Printf("%s Done\n", emoji.CheckMarkButton)
 		})
@@ -532,7 +538,7 @@ func runForeground(profiles []string, instanceName string, composePath string, k
 				for scanner.Scan() {
 					line := scanner.Text()
 					printMu.Lock()
-					clr.Printf("%-20s | ", c.Service)
+					clr.Printf("%-15s | ", c.Service)
 					fmt.Println(line)
 					printMu.Unlock()
 				}
@@ -543,7 +549,7 @@ func runForeground(profiles []string, instanceName string, composePath string, k
 				for scanner.Scan() {
 					line := scanner.Text()
 					printMu.Lock()
-					clr.Printf("%-20s | ", c.Service)
+					clr.Printf("%-15s | ", c.Service)
 					fmt.Println(line)
 					printMu.Unlock()
 				}
@@ -574,7 +580,7 @@ func runForeground(profiles []string, instanceName string, composePath string, k
 	// wait for termination signal or errors from any log goroutine
 	select {
 	case <-shutdownChan:
-		fmt.Printf("\nInterrupt received. Forcing shutdown...\n")
+		fmt.Printf("\n%s Shutting down instance %s...\n", emoji.StopSign, instanceName)
 		// cleanup()
 	case <-doneChan:
 		fmt.Printf("All log tails completed. Shutting down...\n")
