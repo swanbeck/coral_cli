@@ -3,7 +3,7 @@
     <a href="https://github.com/swanbeck/coral_cli/releases"><img src="https://img.shields.io/github/v/release/swanbeck/coral_cli?label=version" /></a>
     <a href="https://github.com/swanbeck/coral_cli/blob/main/LICENSE"><img src="https://img.shields.io/github/license/swanbeck/coral_cli" /></a>
     <a href="https://github.com/swanbeck/coral_cli/blob/main/"><img src="https://img.shields.io/badge/Linux-FCC624?logo=linux&logoColor=black" /></a>
-    <!-- <a href=""><img src="https://img.shields.io/badge/Paper-B34700?logo=google-scholar&logoColor=white" /></a> -->
+    <a href="https://arxiv.org/abs/2509.02453"><img src="https://img.shields.io/badge/Paper-B34700?logo=google-scholar&logoColor=white" /></a>
     <br />
     <br />
 </div>
