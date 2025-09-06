@@ -48,7 +48,7 @@ func init() {
 	launchCmd.Flags().StringVarP(&launchGroup, "group", "g", "coral", "Optional group for this instance")
 	launchCmd.Flags().BoolVarP(&launchDetached, "detached", "d", false, "Launch in detached mode")
 	launchCmd.Flags().BoolVar(&launchKill, "kill", true, "Forcefully kills instances before removing them")
-	launchCmd.Flags().Float32Var(&launchExecutorDelay, "executor-delay", 1.0, "Delay in seconds before starting executors; used to provide small delay for drivers and skillsets to start before executors")
+	launchCmd.Flags().Float32Var(&launchExecutorDelay, "executor-delay", 0.0, "Delay in seconds before starting executors; used to provide small delay for drivers and skillsets to start before executors")
 	launchCmd.Flags().StringSliceVarP(&launchProfiles, "profile", "p", []string{}, "List of profiles to launch (drivers, skillsets, executors); if not specified, all profiles will be launched")
 }
 
@@ -174,6 +174,7 @@ func launch(composePath string, envFile string, handle string, group string, det
 	if err != nil {
 		return err
 	}
+
 	profiles := extractProfileNames(profilesMap)
 
 	// make sure mergedCompose has a services section
@@ -274,7 +275,6 @@ func buildMergedCompose(cf *compose.ComposeFile, lib string, hostLib string, ext
 		if err != nil {
 			return nil, nil, fmt.Errorf("extracting image %s for service %s: %w", image, name, err)
 		}
-		fmt.Printf("%s Extracted dependencies from image %s for service %s\n", emoji.IncomingEnvelope, image, name)
 
 		extractedPath := filepath.Join(lib, "docker", imageID+".yaml")
 		var mergedSvc map[string]interface{}
@@ -409,7 +409,7 @@ func runDetached(profiles []string, instanceName, composePath string, executorDe
 		fmt.Printf("%s Starting %s (%d): %v\n", symbol, profile, len(profilesMap[profile]), profilesMap[profile])
 
 		// optional delay before executors
-		if profile == "executors" {
+		if profile == "executors" && executorDelay > 0 {
 			fmt.Printf("Delaying %.0fs before starting executors...\n", executorDelay)
 			time.Sleep(time.Duration(executorDelay) * time.Second)
 		}
@@ -436,7 +436,6 @@ func runForeground(profiles []string, instanceName string, composePath string, k
 			signal.Ignore(syscall.SIGINT, syscall.SIGTERM)
 
 			cleanup.StopCompose(instanceName, composePath, kill, profiles)
-			fmt.Printf("Cleaning up instance %s...\n", instanceName)
 			cleanup.RemoveInstanceFiles(instanceName)
 			fmt.Printf("%s Done\n", emoji.CheckMarkButton)
 		})

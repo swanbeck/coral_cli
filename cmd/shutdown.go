@@ -20,7 +20,7 @@ var (
 )
 
 func init() {
-	shutdownCmd.Flags().StringVarP(&shutdownName, "name", "n", "", "Path to Docker Compose file")
+	shutdownCmd.Flags().StringVarP(&shutdownName, "name", "n", "", "Name of instance to shut down")
 	shutdownCmd.Flags().StringVar(&shutdownHandle, "handle", "", "Handle to shut down")
 	shutdownCmd.Flags().StringVarP(&shutdownGroup, "group", "g", "", "Group to shut down")
 	shutdownCmd.Flags().BoolVarP(&shutdownAll, "all", "a", false, "Shut down all instances")
@@ -68,7 +68,6 @@ func shutdownAllInstances(kill bool) error {
 		if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill, profiles); err != nil {
 			fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
 		}
-		fmt.Printf("Cleaning up instance %s...\n", meta.Name)
 		if err := cleanup.RemoveInstanceFiles(meta.Name); err != nil {
 			fmt.Printf("Failed to remove files for %s: %v\n", meta.Name, err)
 		}
@@ -95,7 +94,6 @@ func shutdownByName(name string, kill bool) error {
 			if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill, profiles); err != nil {
 				fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
 			}
-			fmt.Printf("Cleaning up instance %s...\n", meta.Name)
 			err = cleanup.RemoveInstanceFiles(meta.Name)
 			fmt.Printf("%s Done\n", emoji.CheckMarkButton)
 			return err
@@ -122,7 +120,6 @@ func shutdownByHandle(handle string, kill bool) error {
 			if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill, profiles); err != nil {
 				fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
 			}
-			fmt.Printf("Cleaning up instance %s...\n", meta.Name)
 			err = cleanup.RemoveInstanceFiles(meta.Name)
 			fmt.Printf("%s Done.\n", emoji.CheckMarkButton)
 			return err
@@ -150,7 +147,6 @@ func shutdownByGroup(group string, kill bool) error {
 			if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill, profiles); err != nil {
 				fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
 			}
-			fmt.Printf("Cleaning up instance %s...\n", meta.Name)
 			if err := cleanup.RemoveInstanceFiles(meta.Name); err != nil {
 				fmt.Printf("Failed to remove files for %s: %v\n", meta.Name, err)
 			}
