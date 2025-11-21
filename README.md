@@ -45,7 +45,7 @@ coral
 ```
 which should print out
 ```
-Coral provides and manages an ecosystem of composable robotics software
+Coral provides and manages an ecosystem of compositional robotics software
 
 Usage:
   coral [flags]
@@ -54,9 +54,9 @@ Usage:
 Available Commands:
   completion  Generate the autocompletion script for the specified shell
   help        Help about any command
-  launch      Extract and run Coral-compatible docker-compose services
-  shutdown    Stop and remove resources for a given instance
-  verify      Checks if a Docker image is compliant with Coral's standards
+  launch      Launches Coral instances
+  shutdown    Stops and cleans up Coral instances
+  verify      Checks if a component is compliant with Coral's standards
 
 Flags:
   -h, --help   help for coral
