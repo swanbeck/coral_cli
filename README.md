@@ -23,22 +23,14 @@ Users are referred to [coral_examples](https://github.com/swanbeck/coral_example
 
 ---
 ### Building
-To build the Coral CLI, start by [installing Go](https://go.dev/doc/install). Once installation is verified, navigate to the [root directory](.) and run: 
+Before beginning, [install Go](https://go.dev/doc/install) on your system.
+
+The easiest way to build and install the Coral CLI on Linux is by using the included [MakeFile](./Makefile). Run
 ```
-go build
+make install
 ```
-To create an executable `coral`, instead run:
-```
-go build -o ./coral
-```
-You can then start running commands with `./coral`, i.e.
-```
-./coral
-```
-Optionally, consider moving the `coral` executable to a location on your `PATH` so it can be run from anywhere:
-```
-sudo mv ./coral /usr/local/bin/
-```
+to build the binary, place it on your `PATH`, and generate and install shell completion scripts. You will need to run one of the printed commands based on your shell to enable autocompletion.
+
 Verify it can be found with
 ```
 coral
@@ -52,7 +44,7 @@ Usage:
   coral [command]
 
 Available Commands:
-  completion  Generate the autocompletion script for the specified shell
+  completion  Generate completion script
   help        Help about any command
   launch      Launches Coral instances
   shutdown    Stops and cleans up Coral instances
@@ -63,6 +55,12 @@ Flags:
 
 Use "coral [command] --help" for more information about a command.
 ```
+
+To uninstall, run
+```
+make uninstall
+```
+which will remove the installed binary and shell completion scripts.
 
 ---
 ### Usage
