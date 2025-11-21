@@ -12,10 +12,10 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
-	"github.com/enescakir/emoji"
 	"github.com/fatih/color"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -24,6 +24,7 @@ import (
 	"coral_cli/internal/compose"
 	"coral_cli/internal/extractor"
 	"coral_cli/internal/io"
+	"coral_cli/internal/logging"
 	"coral_cli/internal/metadata"
 )
 
@@ -54,7 +55,7 @@ func init() {
 
 var launchCmd = &cobra.Command{
 	Use:   "launch",
-	Short: "Extract and run Coral-compatible Docker Compose services",
+	Short: "Launches Coral instances",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return launch(launchComposePath, launchEnvFile, launchHandle, launchGroup, launchDetached, launchKill, launchExecutorDelay, launchProfiles)
 	},
@@ -67,6 +68,14 @@ type containerInfo struct {
 }
 
 func launch(composePath string, envFile string, handle string, group string, detached, kill bool, executorDelay float32, profilesToStart []string) error {
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+	var receivedSignal atomic.Bool
+	go func() {
+		<-signalChan
+		receivedSignal.Store(true)
+	}()
+
 	// load and resolve environment
 	env := make(map[string]string)
 	resolvedEnvFile, err := io.ResolveEnvFile(envFile)
@@ -141,7 +150,9 @@ func launch(composePath string, envFile string, handle string, group string, det
 		return fmt.Errorf("failed to read embedded script: %w", err)
 	}
 
-	extractionEntrypoint := filepath.Join(libPath, "extract.sh")
+	instanceName := fmt.Sprintf("coral-%s", uuid.New())
+
+	extractionEntrypoint := filepath.Join(libPath, fmt.Sprintf("%s-extract.sh", instanceName))
 	if err := os.WriteFile(extractionEntrypoint, content, 0755); err != nil {
 		return fmt.Errorf("failed to write temp script: %w", err)
 	}
@@ -153,13 +164,13 @@ func launch(composePath string, envFile string, handle string, group string, det
 			return
 		}
 		if err := os.Remove(deleteExtractionEntrypoint); err != nil {
-			fmt.Printf("failed to remove temp script: %v\n", err)
+			fmt.Println(logging.Warning(fmt.Sprintf("failed to remove temp script: %v", err)))
 		}
 	}()
 
 	// if docker, the entrypoint must be provided wrt the host filesystem
 	if isDocker == "true" {
-		extractionEntrypoint = filepath.Join(hostLibPath, "extract.sh")
+		extractionEntrypoint = filepath.Join(hostLibPath, fmt.Sprintf("%s-extract.sh", instanceName))
 	}
 
 	err = checkImagesLocal(parsedCompose, profilesToStart)
@@ -167,8 +178,7 @@ func launch(composePath string, envFile string, handle string, group string, det
 		return fmt.Errorf("checking images: %w", err)
 	}
 
-	instanceName := fmt.Sprintf("coral-%s", uuid.New())
-	fmt.Printf("%s Launching new instance %s...\n", emoji.Rocket, instanceName)
+	fmt.Println(logging.Info("Launching new instance " + logging.BoldMagentaHi(instanceName)))
 
 	mergedCompose, profilesMap, err := buildMergedCompose(parsedCompose, libPath, hostLibPath, extractionEntrypoint, profilesToStart)
 	if err != nil {
@@ -202,6 +212,18 @@ func launch(composePath string, envFile string, handle string, group string, det
 	if len(profiles) == 0 {
 		return fmt.Errorf("no valid profiles to run")
 	}
+
+	if receivedSignal.Load() {
+		fmt.Printf("\n%s\n", logging.Warning(fmt.Sprintf("Interrupt received during initialization. Cleaning up %s...", logging.BoldMagenta(instanceName))))
+		err := cleanup.RemoveInstanceFiles(instanceName)
+		if err != nil {
+			return fmt.Errorf("cleaning up instance files: %w", err)
+		}
+		fmt.Println(logging.Success("Done"))
+		return nil
+	}
+
+	signal.Reset(os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
 	if detached {
 		return runDetached(profiles, instanceName, outputPath, executorDelay, profilesMap)
@@ -263,7 +285,7 @@ func buildMergedCompose(cf *compose.ComposeFile, lib string, hostLib string, ext
 
 		validProfiles := []string{"drivers", "skillsets", "executors"}
 		if !hasIntersection(profs, validProfiles) {
-			fmt.Printf("%s  Skipping service %s as it does not match any valid profiles %v\n", emoji.Warning, name, validProfiles)
+			fmt.Println(logging.Warning(fmt.Sprintf("Skipping service %s as it does not match any valid profiles %v", name, validProfiles)))
 			continue
 		}
 
@@ -390,31 +412,18 @@ func orderedProfiles(input []string) []string {
 	return result
 }
 
-func assignEmojiFromProfile(profile string) emoji.Emoji {
-	symbol := emoji.Toolbox
-	switch profile {
-	case "drivers":
-		symbol = emoji.VideoGame
-	case "skillsets":
-		symbol = emoji.Brain
-	case "executors":
-		symbol = emoji.Seedling
-	}
-	return symbol
-}
-
 func runDetached(profiles []string, instanceName, composePath string, executorDelay float32, profilesMap map[string][]string) error {
 	for _, profile := range profiles {
-		symbol := assignEmojiFromProfile(profile)
-		fmt.Printf("%s Starting %s (%d): %v\n", symbol, profile, len(profilesMap[profile]), profilesMap[profile])
+		fmt.Println(logging.Info(fmt.Sprintf("Starting %s (%d): %s", logging.BoldMagenta(profile), len(profilesMap[profile]), logging.BoldMagenta(fmt.Sprintf("%v", profilesMap[profile])))))
 
 		// optional delay before executors
 		if profile == "executors" && executorDelay > 0 {
-			fmt.Printf("Delaying %.0fs before starting executors...\n", executorDelay)
+			fmt.Println(logging.Info(fmt.Sprintf("Delaying %.0fs before starting executors...", executorDelay)))
 			time.Sleep(time.Duration(executorDelay) * time.Second)
 		}
 
 		cmd := exec.Command("docker", "compose", "-p", instanceName, "-f", composePath, "--profile", profile, "up", "-d")
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
@@ -437,7 +446,7 @@ func runForeground(profiles []string, instanceName string, composePath string, k
 
 			cleanup.StopCompose(instanceName, composePath, kill, profiles)
 			cleanup.RemoveInstanceFiles(instanceName)
-			fmt.Printf("%s Done\n", emoji.CheckMarkButton)
+			fmt.Println(logging.Success("Done"))
 		})
 	}
 	defer cleanup()
@@ -567,6 +576,8 @@ func runForeground(profiles []string, instanceName string, composePath string, k
 	shutdownChan := make(chan struct{})
 	go func() {
 		<-signalChan
+		signal.Stop(signalChan)
+		signal.Ignore(syscall.SIGINT, syscall.SIGTERM)
 		close(shutdownChan)
 	}()
 
@@ -579,12 +590,12 @@ func runForeground(profiles []string, instanceName string, composePath string, k
 	// wait for termination signal or errors from any log goroutine
 	select {
 	case <-shutdownChan:
-		fmt.Printf("\n%s Shutting down instance %s...\n", emoji.StopSign, instanceName)
+		fmt.Printf("\n%s\n", logging.Warning(fmt.Sprintf("Interrupt received. Shutting down %s...", logging.BoldMagenta(instanceName))))
 		// cleanup()
 	case <-doneChan:
-		fmt.Printf("All log tails completed. Shutting down...\n")
+		fmt.Println(logging.Info("All log tails completed. Shutting down..."))
 	case err := <-errCh:
-		fmt.Printf("Error while streaming logs: %v\n", err)
+		fmt.Println(logging.Failure(fmt.Sprintf("Error while streaming logs: %v", err)))
 	}
 
 	return nil

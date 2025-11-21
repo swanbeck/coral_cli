@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"coral_cli/internal/compose"
 	"coral_cli/internal/extractor"
@@ -22,6 +23,7 @@ func StopCompose(instanceName string, composePath string, kill bool, profiles []
 	if kill {
 		kill_args := append(args, "kill")
 		kill_cmd := exec.Command("docker", kill_args...)
+		kill_cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		kill_cmd.Stdout = os.Stdout
 		kill_cmd.Stderr = os.Stderr
 		if err := kill_cmd.Run(); err != nil {
@@ -31,6 +33,7 @@ func StopCompose(instanceName string, composePath string, kill bool, profiles []
 
 	args = append(args, "down")
 	cmd := exec.Command("docker", args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
