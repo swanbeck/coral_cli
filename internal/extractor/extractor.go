@@ -5,10 +5,10 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-
-	"github.com/enescakir/emoji"
+	"syscall"
 
 	"coral_cli/internal/io"
+	"coral_cli/internal/logging"
 )
 
 func ExtractImage(image string, name string, libPath string, extractionEntrypoint string) (string, error) {
@@ -38,7 +38,7 @@ func ExtractImage(image string, name string, libPath string, extractionEntrypoin
 		"--entrypoint", "/extract.sh",
 		image,
 	)
-
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -47,12 +47,13 @@ func ExtractImage(image string, name string, libPath string, extractionEntrypoin
 
 func GetImageID(image string) (string, error) {
 	inspectCmd := exec.Command("docker", "inspect", "--format={{.Id}}", image)
+	inspectCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	output, err := inspectCmd.Output()
 	if err == nil {
 		return strings.TrimSpace(string(output)), nil
 	}
 
-	fmt.Printf("%s Image %s not found locally. Attempting to pull...\n", emoji.Package, image)
+	fmt.Println(logging.Info(fmt.Sprintf("Image %s not found locally. Attempting to pull...", image)))
 	tmpFile, err := os.CreateTemp("", "compose-*.yml")
 	if err != nil {
 		return "", err
@@ -73,6 +74,7 @@ func GetImageID(image string) (string, error) {
 	}
 
 	inspectCmd = exec.Command("docker", "inspect", "--format={{.Id}}", image)
+	inspectCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	output, err = inspectCmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to inspect image after pull: %w", err)

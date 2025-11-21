@@ -10,12 +10,12 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/enescakir/emoji"
 	"github.com/spf13/cobra"
 
 	"coral_cli/internal/compose"
 	"coral_cli/internal/extractor"
 	"coral_cli/internal/io"
+	"coral_cli/internal/logging"
 )
 
 //go:embed scripts/extract.sh
@@ -31,7 +31,7 @@ func init() {
 
 var verifyCmd = &cobra.Command{
 	Use:   "verify <image-name>",
-	Short: "Checks if a Docker image is compliant with Coral's standards",
+	Short: "Checks if a component is compliant with Coral's standards",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) < 1 {
 			return fmt.Errorf("image name is required")
@@ -39,9 +39,9 @@ var verifyCmd = &cobra.Command{
 		imageName := args[0]
 		err := verify(imageName, verifyEnvFile)
 		if err != nil {
-			return fmt.Errorf("%s verification failed: %w", emoji.CrossMark, err)
+			return fmt.Errorf("%s: %w", logging.Failure("verification failed"), err)
 		}
-		fmt.Printf("%s Verification completed successfully.\n", emoji.CheckMarkButton)
+		fmt.Println(logging.Success("Image is compliant with Coral's standards"))
 		return nil
 	},
 }
@@ -190,6 +190,7 @@ func verify(imageName string, envFile string) error {
 		"--entrypoint", "stat",
 		imageName,
 		"-c", "%a", "/ws")
+	checkCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	output, err := checkCmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to stat /ws in container: %w\nOutput: %s", err, string(output))
@@ -202,6 +203,7 @@ func verify(imageName string, envFile string) error {
 		"--entrypoint", "sh",
 		imageName,
 		"-c", "test -d /ws")
+	checkDirCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := checkDirCmd.Run(); err != nil {
 		return fmt.Errorf("/ws does not exist or is not a directory in image %q", imageName)
 	}
@@ -211,6 +213,7 @@ func verify(imageName string, envFile string) error {
 		"--entrypoint", "sh",
 		imageName,
 		"-c", "test ! -d /export")
+	checkExportCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := checkExportCmd.Run(); err != nil {
 		return fmt.Errorf("/export directory already exists in image %q; please remove it", imageName)
 	}

@@ -13,7 +13,7 @@
 </div>
 
 # Coral CLI
-Coral (COmposable Robotics Abstraction Layer) represents an effort toward truly composable software for robotics applications. Coral draws inspiration from functional programming to create reconfigurable systems composed of modular and reusable atomic components with minimal functional interfaces. This is achieved using behavior trees and containerization.
+Coral (COmpositional Robotics Abstraction Layer) represents an effort toward truly composable software for robotics applications. Coral draws inspiration from functional programming to create reconfigurable systems composed of modular and reusable atomic components with minimal functional interfaces. This is achieved using behavior trees and containerization.
 
 Just as coral reefs support tremendous biodiversity (25% of marine species while covering less than 1% of the sea floor), Coral provides the scaffolding necessary to support a rich ecosystem of robotics software that enables scalable solutions across a wide range of real-world applications.
 
@@ -79,10 +79,12 @@ services:
       - CORAL_LIB=/home/coral/lib
       - CORAL_IS_DOCKER=true
       - CORAL_HOST_LIB=/absolute/path/on/host/to/lib
+      - CORAL_UID=1001
+      - CORAL_GID=1001
     volumes:
       - /absolute/path/on/host/to/lib:/home/coral/lib
 ```
-These variables must be set because Coral launches Docker containers using the host system's Docker installation. 
+These variables must be set because Coral launches Docker containers using the host system's Docker installation. `CORAL_UID` and `CORAL_GID` can also be set to ensure proper ownership of extracted files when running Coral as a non-default user (1000:1000). 
 
 Once the proper environment variables are set, a Docker compose file can be created to start the relevant containers. The compose file to be run can be specified explicitly with `-f` or a local file `(docker-)compose.y(a)ml` will be used if it exists and is not explicitly overridden. As an example, here is a valid Docker compose file that is compatible with Coral launch:
 ```yaml
@@ -157,21 +159,15 @@ coral launch
 produces the following partial output:
 
 ```
-📦 Extracting dependencies from image coral-llama3.1_8b:humble-amd64 for service llama
-📦 Extracting dependencies from image coral-whisper:humble-amd64 for service whisper
-📦 Extracting dependencies from image coral-gtts:humble-amd64 for service gtts
-📦 Extracting dependencies from image coral-dynamic_runner:humble-amd64 for service dynamic_runner
-Writing compose file /home/coral/config/lib/compose/coral-1747512980139421567.yaml
-Starting instance coral-1747512980139421567
-🧠 Starting skillsets (3): [llama whisper gtts]
+[INFO] Launching new instance coral-d3db75df-a1ec-41ba-bad5-2f4169b38ce1
+[INFO] Starting skillsets (3): [llama whisper gtts]
 [+] Running 3/3
- ✔ Container coral-1747512980139421567-whisper-1  Started
- ✔ Container coral-1747512980139421567-llama-1    Started
- ✔ Container coral-1747512980139421567-gtts-1     Started
-🚀 Starting executors (1): [dynamic_runner]
-Delaying 1s before starting executors...
+ ✔ Container coral-d3db75df-a1ec-41ba-bad5-2f4169b38ce1-whisper-1  Started
+ ✔ Container coral-d3db75df-a1ec-41ba-bad5-2f4169b38ce1-llama-1    Started
+ ✔ Container coral-d3db75df-a1ec-41ba-bad5-2f4169b38ce1-gtts-1     Started
+[INFO] Starting executors (1): [dynamic_runner]
 [+] Running 1/1
- ✔ Container coral-1747512980139421567-dynamic_runner-1  Started
+ ✔ Container coral-d3db75df-a1ec-41ba-bad5-2f4169b38ce1-dynamic_runner-1  Started
  ...
 ```
 
@@ -194,8 +190,7 @@ coral shutdown -g group1
 Shutdown can also be controlled via an instance name that is generated and printed on Coral launch with `-n` (`coral-1747512980139421567` in the example output above) or using a `--handle` provided when Coral launch is run. The `-a` flag can also be used to shutdown all running Coral instances.
 
 #### Verify
-When building a Coral-compatible Docker image, it is useful to test whether the image is compliant with the assumptions that are made with Coral launch. To do this, you can use the command
+When building a Coral component, it is useful to test whether it is compatible with the Coral CLI. To do this, you can use the command:
 ```
 coral verify <IMAGE_NAME>:<IMAGE_TAG>
 ```
-to test whether the provided image is compatible. 
