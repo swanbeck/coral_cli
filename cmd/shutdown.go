@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -21,10 +22,50 @@ var (
 
 func init() {
 	shutdownCmd.Flags().StringVarP(&shutdownName, "name", "n", "", "Name of instance to shut down")
-	shutdownCmd.Flags().StringVar(&shutdownHandle, "handle", "", "Handle to shut down")
 	shutdownCmd.Flags().StringVarP(&shutdownGroup, "group", "g", "", "Group to shut down")
+	shutdownCmd.Flags().StringVar(&shutdownHandle, "handle", "", "Handle to shut down")
 	shutdownCmd.Flags().BoolVarP(&shutdownAll, "all", "a", false, "Shut down all instances")
 	shutdownCmd.Flags().BoolVar(&shutdownKill, "kill", true, "Forcefully kills instances before removing them")
+
+	shutdownCmd.RegisterFlagCompletionFunc("name", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		metadataList, err := metadata.LoadAllMetadata()
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveError
+		}
+		var suggestions []string
+		for _, m := range metadataList {
+			if strings.HasPrefix(m.Name, toComplete) {
+				suggestions = append(suggestions, m.Name)
+			}
+		}
+		return suggestions, cobra.ShellCompDirectiveNoFileComp
+	})
+	shutdownCmd.RegisterFlagCompletionFunc("group", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		metadataList, err := metadata.LoadAllMetadata()
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveError
+		}
+		var suggestions []string
+		for _, m := range metadataList {
+			if strings.HasPrefix(m.Group, toComplete) {
+				suggestions = append(suggestions, m.Group)
+			}
+		}
+		return suggestions, cobra.ShellCompDirectiveNoFileComp
+	})
+	shutdownCmd.RegisterFlagCompletionFunc("handle", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		metadataList, err := metadata.LoadAllMetadata()
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveError
+		}
+		var suggestions []string
+		for _, m := range metadataList {
+			if strings.HasPrefix(m.Handle, toComplete) {
+				suggestions = append(suggestions, m.Handle)
+			}
+		}
+		return suggestions, cobra.ShellCompDirectiveNoFileComp
+	})
 }
 
 var shutdownCmd = &cobra.Command{
