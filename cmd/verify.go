@@ -27,6 +27,28 @@ var (
 
 func init() {
 	verifyCmd.Flags().StringVar(&verifyEnvFile, "env-file", "", "Optional path to .env file")
+
+	verifyCmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) > 0 {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+
+		out, err := exec.Command("docker", "images", "--format", "{{.Repository}}:{{.Tag}}").Output()
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveError
+		}
+
+		images := strings.Split(strings.TrimSpace(string(out)), "\n")
+
+		var matches []string
+		for _, image := range images {
+			if strings.HasPrefix(image, toComplete) {
+				matches = append(matches, image)
+			}
+		}
+
+		return matches, cobra.ShellCompDirectiveNoFileComp
+	}
 }
 
 var verifyCmd = &cobra.Command{
