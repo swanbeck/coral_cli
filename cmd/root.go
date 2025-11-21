@@ -59,6 +59,7 @@ func runDockerCommand(args ...string) error {
 
 func init() {
 	// commands that do not overload docker commands belong here
+	rootCmd.AddCommand(completionCmd)
 	rootCmd.AddCommand(launchCmd)
 	rootCmd.AddCommand(shutdownCmd)
 	rootCmd.AddCommand(verifyCmd)
