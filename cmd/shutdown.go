@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"coral_cli/internal/cleanup"
 	"coral_cli/internal/compose"
@@ -21,11 +22,28 @@ var (
 )
 
 func init() {
+	shutdownCmd.Args = cobra.NoArgs
+
 	shutdownCmd.Flags().StringVarP(&shutdownName, "name", "n", "", "Name of instance to shut down")
 	shutdownCmd.Flags().StringVarP(&shutdownGroup, "group", "g", "", "Group to shut down")
 	shutdownCmd.Flags().StringVar(&shutdownHandle, "handle", "", "Handle to shut down")
 	shutdownCmd.Flags().BoolVarP(&shutdownAll, "all", "a", false, "Shut down all instances")
 	shutdownCmd.Flags().BoolVar(&shutdownKill, "kill", true, "Forcefully kills instances before removing them")
+
+	shutdownCmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if toComplete == "" {
+			var out []string
+			cmd.Flags().VisitAll(func(f *pflag.Flag) {
+				if f.Shorthand != "" {
+					out = append(out, fmt.Sprintf("#   --%s,-%s", f.Name, f.Shorthand))
+				} else {
+					out = append(out, fmt.Sprintf("#   --%s", f.Name))
+				}
+			})
+			return out, cobra.ShellCompDirectiveNoFileComp
+		}
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
 
 	shutdownCmd.RegisterFlagCompletionFunc("name", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		metadataList, err := metadata.LoadAllMetadata()

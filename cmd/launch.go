@@ -19,6 +19,8 @@ import (
 	"github.com/fatih/color"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+	"gopkg.in/yaml.v3"
 
 	"coral_cli/internal/cleanup"
 	"coral_cli/internal/compose"
@@ -43,6 +45,8 @@ var (
 )
 
 func init() {
+	launchCmd.Args = cobra.NoArgs
+
 	launchCmd.Flags().StringVarP(&launchComposePath, "compose-file", "f", "", "Path to Docker Compose .yaml file to start services")
 	launchCmd.Flags().StringVar(&launchEnvFile, "env-file", "", "Optional path to .env file to use for compose file substitutions")
 	launchCmd.Flags().StringVar(&launchHandle, "handle", "", "Optional handle for this instance")
@@ -51,6 +55,87 @@ func init() {
 	launchCmd.Flags().BoolVar(&launchKill, "kill", true, "Forcefully kills instances before removing them")
 	launchCmd.Flags().Float32Var(&launchExecutorDelay, "executor-delay", 0.0, "Delay in seconds before starting executors; used to provide small delay for drivers and skillsets to start before executors")
 	launchCmd.Flags().StringSliceVarP(&launchProfiles, "profile", "p", []string{}, "List of profiles to launch (drivers, skillsets, executors); if not specified, all profiles will be launched")
+
+	launchCmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if toComplete == "" {
+			var out []string
+			cmd.Flags().VisitAll(func(f *pflag.Flag) {
+				if f.Shorthand != "" {
+					out = append(out, fmt.Sprintf("#   --%s,-%s", f.Name, f.Shorthand))
+				} else {
+					out = append(out, fmt.Sprintf("#   --%s", f.Name))
+				}
+			})
+			return out, cobra.ShellCompDirectiveNoFileComp
+		}
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	launchCmd.RegisterFlagCompletionFunc("compose-file", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		dir := "."
+
+		if strings.Contains(toComplete, string(os.PathSeparator)) {
+			dir = filepath.Dir(toComplete)
+			if dir == "" {
+				dir = "."
+			}
+		}
+
+		files, err := os.ReadDir(dir)
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveError
+		}
+
+		var suggestions []string
+		for _, f := range files {
+			entry := filepath.Join(dir, f.Name())
+			display := entry
+
+			if f.IsDir() {
+				display += string(os.PathSeparator)
+			}
+
+			if !strings.HasPrefix(display, toComplete) {
+				continue
+			}
+
+			if f.IsDir() {
+				suggestions = append(suggestions, display)
+				continue
+			}
+
+			if !strings.HasSuffix(f.Name(), ".yaml") && !strings.HasSuffix(f.Name(), ".yml") {
+				continue
+			}
+
+			content, err := os.ReadFile(entry)
+			if err != nil {
+				continue
+			}
+
+			var doc map[string]any
+			if err := yaml.Unmarshal(content, &doc); err != nil {
+				continue
+			}
+
+			if _, ok := doc["services"]; ok {
+				suggestions = append(suggestions, display)
+			}
+		}
+
+		return suggestions, cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveNoSpace
+	})
+
+	launchCmd.RegisterFlagCompletionFunc("profile", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		profiles := []string{"drivers", "skillsets", "executors"}
+		var matches []string
+		for _, profile := range profiles {
+			if strings.HasPrefix(profile, toComplete) {
+				matches = append(matches, profile)
+			}
+		}
+		return matches, cobra.ShellCompDirectiveNoFileComp
+	})
 }
 
 var launchCmd = &cobra.Command{
@@ -297,6 +382,8 @@ func buildMergedCompose(cf *compose.ComposeFile, lib string, hostLib string, ext
 		if err != nil {
 			return nil, nil, fmt.Errorf("extracting image %s for service %s: %w", image, name, err)
 		}
+
+		// fmt.Println(logging.Info(fmt.Sprintf("Extracted interfaces from %s for %s", image, logging.BoldMagenta(name))))
 
 		extractedPath := filepath.Join(lib, "docker", imageID+".yaml")
 		var mergedSvc map[string]interface{}
