@@ -47,9 +47,13 @@ func RemoveInstanceFiles(instanceName string) error {
 	composeFile := meta.ComposeFile
 	libPath := meta.LibPath
 
-	cleanupFromCompose(composeFile, libPath)
-	tryRemoveFileAndDirectory(composeFile)
-	tryRemoveFileAndDirectory(metaPath)
+	defer tryRemoveFileAndDirectory(composeFile)
+	defer tryRemoveFileAndDirectory(metaPath)
+
+	err = cleanupFromCompose(composeFile, libPath)
+	if err != nil {
+		return fmt.Errorf("removing files for instance %s: %v", instanceName, err)
+	}
 
 	return nil
 }
@@ -110,6 +114,8 @@ func cleanFilesFromLog(logPath, baseDir string) error {
 }
 
 func cleanupFromCompose(composePath, libPath string) error {
+	warn := ""
+
 	rawCompose, err := compose.LoadRawYAML(composePath)
 	if err != nil {
 		return fmt.Errorf("loading compose: %w", err)
@@ -144,11 +150,15 @@ func cleanupFromCompose(composePath, libPath string) error {
 		logPath := filepath.Join(libPath, "logs", imageID+".log")
 
 		if err := cleanFilesFromLog(logPath, libPath); err != nil {
-			fmt.Printf("Error cleaning files for %s: %v\n", imageID, err)
+			warn = warn + fmt.Sprintf("Error cleaning files for %s: %v\n", imageID, err)
 		}
 
 		tryRemoveFileAndDirectory(dockerPath)
 		tryRemoveFileAndDirectory(logPath)
+	}
+
+	if warn != "" {
+		return fmt.Errorf("%s", warn)
 	}
 
 	return nil

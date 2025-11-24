@@ -531,8 +531,24 @@ func runForeground(profiles []string, instanceName string, composePath string, k
 			// ignore further SIGINT/SIGTERM during cleanup
 			signal.Ignore(syscall.SIGINT, syscall.SIGTERM)
 
-			cleanup.StopCompose(instanceName, composePath, kill, profiles)
-			cleanup.RemoveInstanceFiles(instanceName)
+			// make sure metadata exists before attempting cleanup
+			time.Sleep(500 * time.Millisecond)
+			_, _, err := metadata.LoadInstanceMetadata(instanceName)
+			if err != nil {
+				fmt.Println(logging.Warning(fmt.Sprintf("Instance metadata for %s not found. It may have already been cleaned up.", instanceName)))
+				return
+			}
+
+			err = cleanup.StopCompose(instanceName, composePath, kill, profiles)
+			if err != nil {
+				fmt.Println(logging.Warning(fmt.Sprintf("Unable to stop compose: %v", err)))
+			}
+
+			err = cleanup.RemoveInstanceFiles(instanceName)
+			if err != nil {
+				fmt.Println(logging.Warning(fmt.Sprintf("Unable to clean up instance files: %v.", err)))
+			}
+
 			fmt.Println(logging.Success("Done"))
 		})
 	}
