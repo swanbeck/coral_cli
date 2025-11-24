@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bufio"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -9,14 +8,12 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 
-	"github.com/fatih/color"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -144,12 +141,6 @@ var launchCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return launch(launchComposePath, launchEnvFile, launchHandle, launchGroup, launchDetached, launchKill, launchExecutorDelay, launchProfiles)
 	},
-}
-
-type containerInfo struct {
-	ID      string
-	Name    string
-	Service string
 }
 
 func launch(composePath string, envFile string, handle string, group string, detached, kill bool, executorDelay float32, profilesToStart []string) error {
@@ -539,7 +530,7 @@ func runForeground(profiles []string, instanceName string, composePath string, k
 
 			err = cleanup.RemoveInstanceFiles(instanceName)
 			if err != nil {
-				fmt.Println(logging.Failure(fmt.Sprintf("failed to clean up files: %v", err)))
+				fmt.Println(logging.Failure(fmt.Sprintf("Failed to clean up files: %v", err)))
 			}
 
 			fmt.Println(logging.Success("Done"))
@@ -553,141 +544,25 @@ func runForeground(profiles []string, instanceName string, composePath string, k
 		return fmt.Errorf("failed to start profiles in detached mode: %w", err)
 	}
 
-	// get all container IDs in the project
-	args := []string{"compose", "-p", instanceName, "-f", composePath, "ps", "-q"}
-	out, err := exec.Command("docker", args...).Output()
+	containers, err := logging.GetContainerInfo(instanceName, composePath)
 	if err != nil {
-		return fmt.Errorf("failed to get container IDs: %w", err)
-	}
-	containerIDs := strings.Fields(string(out))
-	if len(containerIDs) == 0 {
-		return fmt.Errorf("no containers found for instance %s", instanceName)
-	}
-
-	// inspect containers to get service names
-	prefix := instanceName + "-"
-	suffixRegex := regexp.MustCompile(`-\d+$`)
-	var containers []containerInfo
-	for _, id := range containerIDs {
-		nameOut, err := exec.Command("docker", "inspect", "-f", "{{.Name}}", id).Output()
-		if err != nil {
-			return fmt.Errorf("failed to inspect container %s: %w", id, err)
-		}
-		fullName := strings.Trim(strings.TrimSpace(string(nameOut)), "/")
-		serviceName := fullName
-		if strings.HasPrefix(fullName, prefix) {
-			serviceName = fullName[len(prefix):]
-		}
-		serviceName = suffixRegex.ReplaceAllString(serviceName, "")
-
-		containers = append(containers, containerInfo{
-			ID:      id,
-			Name:    fullName,
-			Service: serviceName,
-		})
-	}
-
-	// create color palette
-	colors := []color.Attribute{
-		color.FgHiRed,
-		color.FgHiGreen,
-		color.FgHiYellow,
-		color.FgHiBlue,
-		color.FgHiMagenta,
-		color.FgHiCyan,
-	}
-	colorMap := make(map[string]*color.Color)
-	colorIndex := 0
-
-	// mutex to avoid interleaved output
-	var printMu sync.Mutex
-
-	// start tailing logs from all containers concurrently
-	var wg sync.WaitGroup
-	errCh := make(chan error, len(containers))
-
-	for _, c := range containers {
-		wg.Add(1)
-
-		// assign color to service prefix (reuse if exists)
-		clr, exists := colorMap[c.Service]
-		if !exists {
-			clr = color.New(colors[colorIndex%len(colors)]).Add(color.Bold)
-			colorMap[c.Service] = clr
-			colorIndex++
-		}
-
-		go func(c containerInfo, clr *color.Color) {
-			defer wg.Done()
-
-			cmd := exec.Command("docker", "logs", "-f", c.ID)
-			stdout, err := cmd.StdoutPipe()
-			if err != nil {
-				errCh <- fmt.Errorf("failed to get stdout for container %s: %w", c.Name, err)
-				return
-			}
-			stderr, err := cmd.StderrPipe()
-			if err != nil {
-				errCh <- fmt.Errorf("failed to get stderr for container %s: %w", c.Name, err)
-				return
-			}
-
-			if err := cmd.Start(); err != nil {
-				errCh <- fmt.Errorf("failed to start logs for container %s: %w", c.Name, err)
-				return
-			}
-
-			go func() {
-				scanner := bufio.NewScanner(stdout)
-				for scanner.Scan() {
-					line := scanner.Text()
-					printMu.Lock()
-					clr.Printf("%-15s | ", c.Service)
-					fmt.Println(line)
-					printMu.Unlock()
-				}
-			}()
-
-			go func() {
-				scanner := bufio.NewScanner(stderr)
-				for scanner.Scan() {
-					line := scanner.Text()
-					printMu.Lock()
-					clr.Printf("%-15s | ", c.Service)
-					fmt.Println(line)
-					printMu.Unlock()
-				}
-			}()
-
-			if err := cmd.Wait(); err != nil {
-				// exit code 130 = SIGINT, which is expected from the docker logs on interrupt and we don't want to treat it as an error
-				if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 130 {
-					return
-				}
-				errCh <- fmt.Errorf("logs command exited for container %s: %w", c.Name, err)
-			}
-		}(c, clr)
+		return fmt.Errorf("getting container info: %w", err)
 	}
 
 	shutdownChan := make(chan struct{})
 	go func() {
 		<-signalChan
 		signal.Stop(signalChan)
-		signal.Ignore(syscall.SIGINT, syscall.SIGTERM)
 		close(shutdownChan)
 	}()
 
-	doneChan := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(doneChan)
-	}()
+	// start log tailing
+	doneChan, errCh := logging.TailLogs(containers, shutdownChan, true)
 
-	// wait for termination signal or errors from any log goroutine
+	// wait for completion or interrupt
 	select {
 	case <-shutdownChan:
 		fmt.Printf("\n%s\n", logging.Warning(fmt.Sprintf("Interrupt received. Shutting down %s...", logging.BoldMagenta(instanceName))))
-		// cleanup()
 	case <-doneChan:
 		fmt.Println(logging.Info("All log tails completed. Shutting down..."))
 	case err := <-errCh:

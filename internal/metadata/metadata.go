@@ -18,6 +18,12 @@ type InstanceMetadata struct {
 	Detached    bool   `json:"detached"`
 }
 
+type ContainerInfo struct {
+	ID      string
+	Name    string
+	Service string
+}
+
 func LoadInstanceMetadata(instanceName string) (*InstanceMetadata, string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
