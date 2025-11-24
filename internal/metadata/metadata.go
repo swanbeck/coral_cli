@@ -15,6 +15,7 @@ type InstanceMetadata struct {
 	LibPath     string `json:"lib_path"`
 	Handle      string `json:"handle,omitempty"`
 	Group       string `json:"group,omitempty"`
+	Detached    bool   `json:"detached"`
 }
 
 func LoadInstanceMetadata(instanceName string) (*InstanceMetadata, string, error) {

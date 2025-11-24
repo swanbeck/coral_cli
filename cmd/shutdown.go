@@ -127,8 +127,12 @@ func shutdownAllInstances(kill bool) error {
 		if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill, profiles); err != nil {
 			fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
 		}
-		if err := cleanup.RemoveInstanceFiles(meta.Name); err != nil {
-			fmt.Printf("Failed to remove files for %s: %v\n", meta.Name, err)
+		if meta.Detached {
+			if err := cleanup.RemoveInstanceFiles(meta.Name); err != nil {
+				fmt.Printf("Failed to remove files for %s: %v\n", meta.Name, err)
+			}
+		} else {
+			fmt.Println(logging.Warning(fmt.Sprintf("Instance %s is not detached; file removal will be left to the foreground process.", meta.Name)))
 		}
 	}
 
@@ -153,10 +157,15 @@ func shutdownByName(name string, kill bool) error {
 			if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill, profiles); err != nil {
 				fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
 			}
-			err = cleanup.RemoveInstanceFiles(meta.Name)
+			if meta.Detached {
+				if err := cleanup.RemoveInstanceFiles(meta.Name); err != nil {
+					fmt.Printf("Failed to remove files for %s: %v\n", meta.Name, err)
+				}
+			} else {
+				fmt.Println(logging.Warning(fmt.Sprintf("Instance %s is not detached; file removal will be left to the foreground process.", meta.Name)))
+			}
 			fmt.Println(logging.Success("Done"))
-			return err
-
+			return nil
 		}
 	}
 	return fmt.Errorf("no instance found with name: %s", name)
@@ -170,7 +179,7 @@ func shutdownByHandle(handle string, kill bool) error {
 
 	for _, meta := range metadataList {
 		if meta.Handle == handle {
-			fmt.Println(logging.Info(fmt.Sprintf("Shutting down %s with handle %s...", logging.BoldMagenta(meta.Name), meta.Handle)))
+			fmt.Println(logging.Info(fmt.Sprintf("Shutting down %s with handle %s...", logging.BoldMagenta(meta.Name), logging.BoldMagenta(meta.Handle))))
 			profiles, err := extractProfiles(meta.ComposeFile)
 			if err != nil {
 				fmt.Printf("Failed to extract profiles for %s: %v\n", meta.Name, err)
@@ -179,9 +188,15 @@ func shutdownByHandle(handle string, kill bool) error {
 			if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill, profiles); err != nil {
 				fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
 			}
-			err = cleanup.RemoveInstanceFiles(meta.Name)
+			if meta.Detached {
+				if err := cleanup.RemoveInstanceFiles(meta.Name); err != nil {
+					fmt.Printf("Failed to remove files for %s: %v\n", meta.Name, err)
+				}
+			} else {
+				fmt.Println(logging.Warning(fmt.Sprintf("Instance %s is not detached; file removal will be left to the foreground process.", meta.Name)))
+			}
 			fmt.Println(logging.Success("Done"))
-			return err
+			return nil
 		}
 	}
 	return fmt.Errorf("no instance found with handle: %s", handle)
@@ -197,7 +212,7 @@ func shutdownByGroup(group string, kill bool) error {
 	for _, meta := range metadataList {
 		if meta.Group == group {
 			found = true
-			fmt.Println(logging.Info(fmt.Sprintf("Shutting down %s with group %s...", logging.BoldMagenta(meta.Name), meta.Group)))
+			fmt.Println(logging.Info(fmt.Sprintf("Shutting down %s with group %s...", logging.BoldMagenta(meta.Name), logging.BoldMagenta(meta.Group))))
 			profiles, err := extractProfiles(meta.ComposeFile)
 			if err != nil {
 				fmt.Printf("Failed to extract profiles for %s: %v\n", meta.Name, err)
@@ -206,8 +221,12 @@ func shutdownByGroup(group string, kill bool) error {
 			if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill, profiles); err != nil {
 				fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
 			}
-			if err := cleanup.RemoveInstanceFiles(meta.Name); err != nil {
-				fmt.Printf("Failed to remove files for %s: %v\n", meta.Name, err)
+			if meta.Detached {
+				if err := cleanup.RemoveInstanceFiles(meta.Name); err != nil {
+					fmt.Printf("Failed to remove files for %s: %v\n", meta.Name, err)
+				}
+			} else {
+				fmt.Println(logging.Warning(fmt.Sprintf("Instance %s is not detached; file removal will be left to the foreground process.", meta.Name)))
 			}
 		}
 	}

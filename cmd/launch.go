@@ -289,7 +289,7 @@ func launch(composePath string, envFile string, handle string, group string, det
 	}
 
 	// log metadata
-	if err := writeInstanceMetadata(instanceName, outputPath, libPath, handle, group); err != nil {
+	if err := writeInstanceMetadata(instanceName, outputPath, libPath, handle, group, detached); err != nil {
 		return err
 	}
 
@@ -383,7 +383,7 @@ func buildMergedCompose(cf *compose.ComposeFile, lib string, hostLib string, ext
 			return nil, nil, fmt.Errorf("extracting image %s for service %s: %w", image, name, err)
 		}
 
-		// fmt.Println(logging.Info(fmt.Sprintf("Extracted interfaces from %s for %s", image, logging.BoldMagenta(name))))
+		fmt.Println(logging.Info(fmt.Sprintf("Extracted interfaces from %s for %s", image, logging.BoldMagenta(name))))
 
 		extractedPath := filepath.Join(lib, "docker", imageID+".yaml")
 		var mergedSvc map[string]interface{}
@@ -467,7 +467,7 @@ func writeComposeToDisk(path string, compose_data compose.RawCompose) error {
 	return compose.SaveRawYAML(path, compose_data)
 }
 
-func writeInstanceMetadata(instanceName, path, lib, handle, group string) error {
+func writeInstanceMetadata(instanceName, path, lib, handle, group string, detached bool) error {
 	meta := metadata.InstanceMetadata{
 		Name:        instanceName,
 		ComposeFile: path,
@@ -475,6 +475,7 @@ func writeInstanceMetadata(instanceName, path, lib, handle, group string) error 
 		LibPath:     lib,
 		Handle:      handle,
 		Group:       group,
+		Detached:    detached,
 	}
 	home, _ := os.UserHomeDir()
 	storeDir := filepath.Join(home, ".coral_cli", "instances")
@@ -531,22 +532,14 @@ func runForeground(profiles []string, instanceName string, composePath string, k
 			// ignore further SIGINT/SIGTERM during cleanup
 			signal.Ignore(syscall.SIGINT, syscall.SIGTERM)
 
-			// make sure metadata exists before attempting cleanup
-			time.Sleep(500 * time.Millisecond)
-			_, _, err := metadata.LoadInstanceMetadata(instanceName)
-			if err != nil {
-				fmt.Println(logging.Warning(fmt.Sprintf("Instance metadata for %s not found. It may have already been cleaned up.", instanceName)))
-				return
-			}
-
-			err = cleanup.StopCompose(instanceName, composePath, kill, profiles)
+			err := cleanup.StopCompose(instanceName, composePath, kill, profiles)
 			if err != nil {
 				fmt.Println(logging.Warning(fmt.Sprintf("Unable to stop compose: %v", err)))
 			}
 
 			err = cleanup.RemoveInstanceFiles(instanceName)
 			if err != nil {
-				fmt.Println(logging.Warning(fmt.Sprintf("Unable to clean up instance files: %v.", err)))
+				fmt.Println(logging.Failure(fmt.Sprintf("failed to clean up files: %v", err)))
 			}
 
 			fmt.Println(logging.Success("Done"))
