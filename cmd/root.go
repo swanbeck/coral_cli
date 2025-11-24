@@ -62,5 +62,6 @@ func init() {
 	rootCmd.AddCommand(completionCmd)
 	rootCmd.AddCommand(launchCmd)
 	rootCmd.AddCommand(shutdownCmd)
+	rootCmd.AddCommand(tailCmd)
 	rootCmd.AddCommand(verifyCmd)
 }
