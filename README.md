@@ -3,7 +3,7 @@
     <a href="https://github.com/swanbeck/coral_cli/releases"><img src="https://img.shields.io/github/v/release/swanbeck/coral_cli?label=version" /></a>
     <a href="https://github.com/swanbeck/coral_cli/blob/main/LICENSE"><img src="https://img.shields.io/github/license/swanbeck/coral_cli" /></a>
     <a href="https://github.com/swanbeck/coral_cli/blob/main/"><img src="https://img.shields.io/badge/Linux-FCC624?logo=linux&logoColor=black" /></a>
-    <a href="https://arxiv.org/abs/2509.02453"><img src="https://img.shields.io/badge/Paper-B34700?logo=google-scholar&logoColor=white" /></a>
+    <a href="https://ieeexplore.ieee.org/document/11404692"><img src="https://img.shields.io/badge/Paper-B34700?logo=google-scholar&logoColor=white" /></a>
     <br />
     <br />
 </div>
@@ -48,6 +48,7 @@ Available Commands:
   help        Help about any command
   launch      Launches Coral instances
   shutdown    Stops and cleans up Coral instances
+  tail        Tails the logs of running Coral instances
   verify      Checks if a component is compliant with Coral's standards
 
 Flags:
@@ -191,4 +192,18 @@ Shutdown can also be controlled via an instance name that is generated and print
 When building a Coral component, it is useful to test whether it is compatible with the Coral CLI. To do this, you can use the command:
 ```
 coral verify <IMAGE_NAME>:<IMAGE_TAG>
+```
+
+---
+### Citation
+If you find Coral useful in your work, please consider citing our paper:
+```
+@inproceedings{swanbeck_coral_2025,
+    author={Swanbeck, Steven and Pryor, Mitch},
+    booktitle={2026 IEEE/SICE International Symposium on System Integration (SII)}, 
+    title={CORAL: A Unifying Abstraction Layer for Compositional Robotics Software}, 
+    year={2026},
+    pages={956-963},
+    doi={10.1109/SII64115.2026.11404692}
+}
 ```
