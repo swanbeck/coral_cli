@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"embed"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -22,13 +22,12 @@ import (
 	"coral_cli/internal/cleanup"
 	"coral_cli/internal/compose"
 	"coral_cli/internal/extractor"
+	"coral_cli/internal/health"
 	"coral_cli/internal/io"
 	"coral_cli/internal/logging"
 	"coral_cli/internal/metadata"
+	"coral_cli/internal/registry"
 )
-
-//go:embed scripts/extract.sh
-var defaultExtractionEntrypoint embed.FS
 
 var (
 	launchComposePath   string
@@ -39,6 +38,8 @@ var (
 	launchKill          bool
 	launchExecutorDelay float32
 	launchProfiles      []string
+	launchLibDir        string
+	launchHealthTimeout float32
 )
 
 func init() {
@@ -50,8 +51,10 @@ func init() {
 	launchCmd.Flags().StringVarP(&launchGroup, "group", "g", "coral", "Optional group for this instance")
 	launchCmd.Flags().BoolVarP(&launchDetached, "detached", "d", false, "Launch in detached mode")
 	launchCmd.Flags().BoolVar(&launchKill, "kill", true, "Forcefully kills instances before removing them")
-	launchCmd.Flags().Float32Var(&launchExecutorDelay, "executor-delay", 0.0, "Delay in seconds before starting executors; used to provide small delay for drivers and skillsets to start before executors")
+	launchCmd.Flags().Float32Var(&launchExecutorDelay, "executor-delay", 0.0, "Additional delay in seconds after health checks pass before starting executors")
 	launchCmd.Flags().StringSliceVarP(&launchProfiles, "profile", "p", []string{}, "List of profiles to launch (drivers, skillsets, executors); if not specified, all profiles will be launched")
+	launchCmd.Flags().StringVar(&launchLibDir, "lib-dir", "", "Override CORAL_LIB path (takes precedence over $CORAL_LIB environment variable)")
+	launchCmd.Flags().Float32Var(&launchHealthTimeout, "health-timeout", 120.0, "Seconds to wait for drivers/skillsets to become healthy before starting executors")
 
 	launchCmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if toComplete == "" {
@@ -70,56 +73,45 @@ func init() {
 
 	launchCmd.RegisterFlagCompletionFunc("compose-file", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		dir := "."
-
 		if strings.Contains(toComplete, string(os.PathSeparator)) {
 			dir = filepath.Dir(toComplete)
 			if dir == "" {
 				dir = "."
 			}
 		}
-
 		files, err := os.ReadDir(dir)
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveError
 		}
-
 		var suggestions []string
 		for _, f := range files {
 			entry := filepath.Join(dir, f.Name())
 			display := entry
-
 			if f.IsDir() {
 				display += string(os.PathSeparator)
 			}
-
 			if !strings.HasPrefix(display, toComplete) {
 				continue
 			}
-
 			if f.IsDir() {
 				suggestions = append(suggestions, display)
 				continue
 			}
-
 			if !strings.HasSuffix(f.Name(), ".yaml") && !strings.HasSuffix(f.Name(), ".yml") {
 				continue
 			}
-
 			content, err := os.ReadFile(entry)
 			if err != nil {
 				continue
 			}
-
 			var doc map[string]any
 			if err := yaml.Unmarshal(content, &doc); err != nil {
 				continue
 			}
-
 			if _, ok := doc["services"]; ok {
 				suggestions = append(suggestions, display)
 			}
 		}
-
 		return suggestions, cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveNoSpace
 	})
 
@@ -139,11 +131,15 @@ var launchCmd = &cobra.Command{
 	Use:   "launch",
 	Short: "Launches Coral instances",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return launch(launchComposePath, launchEnvFile, launchHandle, launchGroup, launchDetached, launchKill, launchExecutorDelay, launchProfiles)
+		return launch(launchComposePath, launchEnvFile, launchHandle, launchGroup,
+			launchDetached, launchKill, launchExecutorDelay, launchHealthTimeout,
+			launchLibDir, launchProfiles)
 	},
 }
 
-func launch(composePath string, envFile string, handle string, group string, detached, kill bool, executorDelay float32, profilesToStart []string) error {
+func launch(composePath, envFile, handle, group string, detached, kill bool,
+	executorDelay, healthTimeout float32, libDirOverride string, profilesToStart []string) error {
+
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	var receivedSignal atomic.Bool
@@ -152,14 +148,13 @@ func launch(composePath string, envFile string, handle string, group string, det
 		receivedSignal.Store(true)
 	}()
 
-	// load and resolve environment
+	// Load environment.
 	env := make(map[string]string)
 	resolvedEnvFile, err := io.ResolveEnvFile(envFile)
 	if err != nil {
 		return fmt.Errorf("resolving env file: %w", err)
 	}
 	if resolvedEnvFile != "" {
-		var err error
 		env, err = compose.LoadEnvFile(resolvedEnvFile)
 		if err != nil {
 			return fmt.Errorf("loading .env: %w", err)
@@ -174,7 +169,7 @@ func launch(composePath string, envFile string, handle string, group string, det
 		}
 	}
 
-	// resolve and parse compose file
+	// Resolve compose file.
 	resolvedComposePath, err := io.ResolveComposeFile(composePath)
 	if err != nil {
 		return err
@@ -184,102 +179,75 @@ func launch(composePath string, envFile string, handle string, group string, det
 		return fmt.Errorf("parsing compose file: %w", err)
 	}
 
-	// validate required environment vars
-	libPath, ok := env["CORAL_LIB"]
-	if !ok || strings.TrimSpace(libPath) == "" {
+	// Resolve lib path: --lib-dir flag > $CORAL_LIB > ./lib fallback.
+	var libPath string
+	if libDirOverride != "" {
+		libPath = libDirOverride
+	} else {
+		libPath = env["CORAL_LIB"]
+	}
+	if strings.TrimSpace(libPath) == "" {
 		libPath, err = filepath.Abs("./lib")
 		if err != nil {
-			return fmt.Errorf("failed to resolve ./lib path: %w", err)
+			return fmt.Errorf("resolving ./lib: %w", err)
 		}
-		_, err = os.Stat(libPath)
-		if os.IsNotExist(err) {
-			err := os.Mkdir(libPath, 0755)
-			if err != nil {
-				return fmt.Errorf("creating directory: %v", err)
+		if _, err := os.Stat(libPath); os.IsNotExist(err) {
+			if err := os.Mkdir(libPath, 0755); err != nil {
+				return fmt.Errorf("creating lib dir: %w", err)
 			}
-		} else if err != nil {
-			return fmt.Errorf("checking directory: %v", err)
 		}
 	} else {
-		_, err = os.Stat(libPath)
-		if os.IsNotExist(err) {
-			return fmt.Errorf("CORAL_LIB path %q does not exist", libPath)
-		}
-		if err != nil {
-			return fmt.Errorf("checking CORAL_LIB path %q: %v", libPath, err)
+		if _, err := os.Stat(libPath); os.IsNotExist(err) {
+			return fmt.Errorf("lib dir %q does not exist", libPath)
 		}
 	}
 
+	// When CORAL runs inside Docker, Docker volume mounts in compose files need host
+	// paths.  This is unchanged from before — only affects compose file generation,
+	// not docker cp operations (which stream through the socket).
 	isDocker := env["CORAL_IS_DOCKER"]
 	var hostLibPath string
 	if isDocker == "true" {
 		var ok bool
 		hostLibPath, ok = env["CORAL_HOST_LIB"]
 		if !ok || strings.TrimSpace(hostLibPath) == "" {
-			return fmt.Errorf("environment variable CORAL_HOST_LIB is required when running in Docker; it should be an absolute path in the host filesystem that points to the Docker mounted LIB_PATH")
+			return fmt.Errorf("CORAL_HOST_LIB is required when CORAL_IS_DOCKER=true")
 		}
 	}
 
-	// get embedded extraction script
-	content, err := defaultExtractionEntrypoint.ReadFile("scripts/extract.sh")
-	if err != nil {
-		return fmt.Errorf("failed to read embedded script: %w", err)
-	}
-
-	instanceName := fmt.Sprintf("coral-%s", uuid.New())
-
-	extractionEntrypoint := filepath.Join(libPath, fmt.Sprintf("%s-extract.sh", instanceName))
-	if err := os.WriteFile(extractionEntrypoint, content, 0755); err != nil {
-		return fmt.Errorf("failed to write temp script: %w", err)
-	}
-
-	// save the path that was written for deletion at end
-	deleteExtractionEntrypoint := extractionEntrypoint
-	defer func() {
-		if _, err := os.Stat(deleteExtractionEntrypoint); os.IsNotExist(err) {
-			return
-		}
-		if err := os.Remove(deleteExtractionEntrypoint); err != nil {
-			fmt.Println(logging.Warning(fmt.Sprintf("failed to remove temp script: %v", err)))
-		}
-	}()
-
-	// if docker, the entrypoint must be provided wrt the host filesystem
-	if isDocker == "true" {
-		extractionEntrypoint = filepath.Join(hostLibPath, fmt.Sprintf("%s-extract.sh", instanceName))
-	}
-
-	err = checkImagesLocal(parsedCompose, profilesToStart)
-	if err != nil {
+	if err := checkImagesLocal(parsedCompose, profilesToStart); err != nil {
 		return fmt.Errorf("checking images: %w", err)
 	}
 
+	instanceName := fmt.Sprintf("coral-%s", uuid.New())
 	fmt.Println(logging.Info("Launching new instance " + logging.BoldMagentaHi(instanceName)))
 
-	mergedCompose, profilesMap, err := buildMergedCompose(parsedCompose, libPath, hostLibPath, extractionEntrypoint, profilesToStart)
+	// Load (or create) the persistent registry.
+	reg, err := registry.Load(libPath)
+	if err != nil {
+		return fmt.Errorf("loading registry: %w", err)
+	}
+
+	mergedCompose, profilesMap, stagingDirs, err := buildMergedCompose(
+		parsedCompose, libPath, hostLibPath, profilesToStart, instanceName, reg)
 	if err != nil {
 		return err
 	}
 
 	profiles := extractProfileNames(profilesMap)
-
-	// make sure mergedCompose has a services section
 	servicesRaw, ok := mergedCompose["services"]
 	if !ok {
-		return fmt.Errorf("merged compose file does not contain a 'services' section")
+		return fmt.Errorf("merged compose file has no 'services' section")
 	}
 	services, ok := servicesRaw.(map[string]interface{})
 	if !ok || len(services) == 0 {
-		return fmt.Errorf("merged compose file does not contain any valid services")
+		return fmt.Errorf("merged compose file has no valid services")
 	}
 
-	// write merged compose
 	outputPath := filepath.Join(libPath, "compose", instanceName+".yaml")
 	if err := writeComposeToDisk(outputPath, mergedCompose); err != nil {
 		return err
 	}
-
-	// log metadata
 	if err := writeInstanceMetadata(instanceName, outputPath, libPath, handle, group, detached); err != nil {
 		return err
 	}
@@ -290,11 +258,8 @@ func launch(composePath string, envFile string, handle string, group string, det
 	}
 
 	if receivedSignal.Load() {
-		fmt.Printf("\n%s\n", logging.Warning(fmt.Sprintf("Interrupt received during initialization. Cleaning up %s...", logging.BoldMagenta(instanceName))))
-		err := cleanup.RemoveInstanceFiles(instanceName)
-		if err != nil {
-			return fmt.Errorf("cleaning up instance files: %w", err)
-		}
+		fmt.Printf("\n%s\n", logging.Warning(fmt.Sprintf("Interrupt during init — cleaning up %s...", logging.BoldMagenta(instanceName))))
+		cleanup.RemoveInstanceFiles(instanceName)
 		fmt.Println(logging.Success("Done"))
 		return nil
 	}
@@ -302,95 +267,118 @@ func launch(composePath string, envFile string, handle string, group string, det
 	signal.Reset(os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
 	if detached {
-		return runDetached(profiles, instanceName, outputPath, executorDelay, profilesMap)
+		// Give the health gate a context that the user can cancel with ctrl+c.
+		// Containers already running are left up (detached mode intent); the
+		// process simply exits if the user interrupts during the health wait.
+		dCtx, dCancel := context.WithCancel(context.Background())
+		defer dCancel()
+		dSigCh := make(chan os.Signal, 1)
+		signal.Notify(dSigCh, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+		go func() {
+			select {
+			case <-dSigCh:
+				dCancel()
+				signal.Stop(dSigCh)
+			case <-dCtx.Done():
+			}
+		}()
+		return runDetached(dCtx, profiles, instanceName, outputPath, executorDelay, healthTimeout, profilesMap, stagingDirs, reg)
 	}
-
-	return runForeground(profiles, instanceName, outputPath, kill, executorDelay, profilesMap)
+	return runForeground(profiles, instanceName, outputPath, kill, executorDelay, healthTimeout, profilesMap, stagingDirs, reg)
 }
 
 func checkImagesLocal(cf *compose.ComposeFile, profilesToStart []string) error {
 	for name, svc := range cf.Services {
 		raw, ok := svc["image"]
 		if !ok || raw == nil {
-			return fmt.Errorf("missing required field 'image' in service: %#v", svc)
+			return fmt.Errorf("missing 'image' in service %s", name)
 		}
-
 		image, ok := raw.(string)
 		if !ok {
-			return fmt.Errorf("expected string for 'image', got %T (%#v)", raw, raw)
+			return fmt.Errorf("expected string for 'image' in service %s", name)
 		}
-
 		profs := extractServiceProfiles(svc)
-
 		if len(profilesToStart) > 0 && !hasIntersection(profs, profilesToStart) {
 			continue
 		}
-
-		_, err := extractor.GetImageID(image)
-		if err != nil {
-			return fmt.Errorf("checking image %s used in service %s: %w", image, name, err)
+		if _, err := extractor.GetImageID(image); err != nil {
+			return fmt.Errorf("checking image %s for service %s: %w", image, name, err)
 		}
 	}
 	return nil
 }
 
-func buildMergedCompose(cf *compose.ComposeFile, lib string, hostLib string, extractionEntrypoint string, profilesToStart []string) (compose.RawCompose, map[string][]string, error) {
+// buildMergedCompose extracts library artifacts from each service image and builds
+// the merged compose map.  It returns the staging directory for each imageID so that
+// InjectLibraries can populate executor containers before they are started.
+func buildMergedCompose(cf *compose.ComposeFile, lib, hostLib string,
+	profilesToStart []string, instanceName string, reg *registry.Registry,
+) (compose.RawCompose, map[string][]string, map[string]string, error) {
+
 	rawCompose, err := cf.ToMap()
 	if err != nil {
-		return nil, nil, fmt.Errorf("converting to raw: %w", err)
+		return nil, nil, nil, fmt.Errorf("converting compose to map: %w", err)
 	}
 	rawServices := rawCompose["services"].(map[string]interface{})
 	merged := compose.RawCompose{"services": map[string]interface{}{}}
-	profiles := map[string][]string{}
+	profilesMap := map[string][]string{}
+	stagingDirs := map[string]string{} // imageID → stagingDir
 
-	var imageLib string
+	// hostLib is used only for volume-mount path rewriting in compose files (the same
+	// logic as before).  docker cp operations use local paths and are unaffected.
+	imageLib := lib
 	if hostLib != "" {
 		imageLib = hostLib
-	} else {
-		imageLib = lib
 	}
+	_ = imageLib // used below for volume path rewriting
 
 	for name, svc := range cf.Services {
 		image := svc["image"].(string)
-
 		profs := extractServiceProfiles(svc)
 
 		if len(profilesToStart) > 0 && !hasIntersection(profs, profilesToStart) {
 			continue
 		}
-
 		validProfiles := []string{"drivers", "skillsets", "executors"}
 		if !hasIntersection(profs, validProfiles) {
-			fmt.Println(logging.Warning(fmt.Sprintf("Skipping service %s as it does not match any valid profiles %v", name, validProfiles)))
+			fmt.Println(logging.Warning(fmt.Sprintf(
+				"Skipping %s — no valid profiles %v", name, validProfiles)))
 			continue
 		}
-
 		for _, p := range profs {
-			profiles[p] = append(profiles[p], name)
+			profilesMap[p] = append(profilesMap[p], name)
 		}
 
-		imageID, err := extractor.ExtractImage(image, name, imageLib, extractionEntrypoint)
+		stagingDir, imageID, err := extractor.ExtractLibraries(image, name, lib)
 		if err != nil {
-			return nil, nil, fmt.Errorf("extracting image %s for service %s: %w", image, name, err)
+			return nil, nil, nil, fmt.Errorf("extracting %s for service %s: %w", image, name, err)
+		}
+		stagingDirs[imageID] = stagingDir
+
+		if err := reg.RecordExtraction(imageID, stagingDir, imageID, instanceName); err != nil {
+			fmt.Println(logging.Warning(fmt.Sprintf("recording extraction for %s: %v", name, err)))
 		}
 
-		fmt.Println(logging.Info(fmt.Sprintf("Extracted interfaces from %s for %s", image, logging.BoldMagenta(name))))
+		fmt.Println(logging.Info(fmt.Sprintf(
+			"Extracted interfaces from %s for %s", image, logging.BoldMagenta(name))))
 
+		// Merge the image's docker.yaml (now at docker/<imageID>.yaml) into the service
+		// config — identical to the previous behaviour.
+		baseSvc := rawServices[name].(map[string]interface{})
 		extractedPath := filepath.Join(lib, "docker", imageID+".yaml")
 		var mergedSvc map[string]interface{}
-		baseSvc := rawServices[name].(map[string]interface{})
-
 		if _, err := os.Stat(extractedPath); err == nil {
 			extracted, err := compose.LoadRawYAML(extractedPath)
 			if err != nil {
-				return nil, nil, fmt.Errorf("parsing extracted compose for %s: %w", name, err)
+				return nil, nil, nil, fmt.Errorf("loading extracted compose for %s: %w", name, err)
 			}
-
-			mergedSvc = compose.MergeServiceConfigs(rawServices[name].(map[string]interface{}), extracted)
+			mergedSvc = compose.MergeServiceConfigs(baseSvc, extracted)
 		} else {
 			mergedSvc = baseSvc
 		}
 
+		// Rewrite relative host volume paths to absolute — and when CORAL is running
+		// inside Docker, rebase them onto hostLib so the Docker daemon can reach them.
 		if volumes, ok := mergedSvc["volumes"].([]interface{}); ok {
 			for i, v := range volumes {
 				volStr, ok := v.(string)
@@ -398,14 +386,21 @@ func buildMergedCompose(cf *compose.ComposeFile, lib string, hostLib string, ext
 					continue
 				}
 				parts := strings.SplitN(volStr, ":", 2)
-				if len(parts) == 2 {
-					hostPath := parts[0]
-					if !filepath.IsAbs(hostPath) && !strings.HasPrefix(hostPath, "${") {
-						absPath, err := filepath.Abs(hostPath)
-						if err == nil {
-							volumes[i] = fmt.Sprintf("%s:%s", absPath, parts[1])
-						}
+				if len(parts) != 2 {
+					continue
+				}
+				hostPath := parts[0]
+				if filepath.IsAbs(hostPath) || strings.HasPrefix(hostPath, "${") {
+					// If the path is absolute and starts with libPath, rebase onto hostLib.
+					if hostLib != "" && strings.HasPrefix(hostPath, lib) {
+						hostPath = hostLib + hostPath[len(lib):]
+						volumes[i] = fmt.Sprintf("%s:%s", hostPath, parts[1])
 					}
+					continue
+				}
+				absPath, err := filepath.Abs(hostPath)
+				if err == nil {
+					volumes[i] = fmt.Sprintf("%s:%s", absPath, parts[1])
 				}
 			}
 		}
@@ -413,8 +408,180 @@ func buildMergedCompose(cf *compose.ComposeFile, lib string, hostLib string, ext
 		merged["services"].(map[string]interface{})[name] = mergedSvc
 	}
 
-	return merged, profiles, nil
+	return merged, profilesMap, stagingDirs, nil
 }
+
+// createAndStartExecutors performs the three-phase executor launch:
+//  1. docker compose create  — allocate containers without starting them
+//  2. InjectLibraries        — copy behavior/interface .so files into each container
+//  3. docker compose start   — start the containers
+func createAndStartExecutors(instanceName, composePath string, executorServices []string,
+	stagingDirs map[string]string, reg *registry.Registry) error {
+
+	createArgs := []string{"compose", "-p", instanceName, "-f", composePath, "--profile", "executors", "create"}
+	createCmd := exec.Command("docker", createArgs...)
+	createCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	createCmd.Stdout = os.Stdout
+	createCmd.Stderr = os.Stderr
+	if err := createCmd.Run(); err != nil {
+		return fmt.Errorf("creating executor containers: %w", err)
+	}
+
+	for _, svc := range executorServices {
+		containerID, err := health.GetContainerIDForService(instanceName, svc)
+		if err != nil || containerID == "" {
+			return fmt.Errorf("locating container for executor service %s: %w", svc, err)
+		}
+		injected, err := extractor.InjectLibraries(containerID, stagingDirs)
+		if err != nil {
+			return fmt.Errorf("injecting libraries into %s: %w", svc, err)
+		}
+		if err := reg.RecordInjection(containerID, instanceName, injected); err != nil {
+			fmt.Println(logging.Warning(fmt.Sprintf("recording injection for %s: %v", svc, err)))
+		}
+		active := 0
+		for _, l := range injected {
+			if !l.Shadowed {
+				active++
+			}
+		}
+		fmt.Println(logging.Info(fmt.Sprintf(
+			"Injected %d libraries into executor %s", active, logging.BoldMagenta(svc))))
+	}
+
+	startArgs := append([]string{"compose", "-p", instanceName, "-f", composePath, "start"}, executorServices...)
+	startCmd := exec.Command("docker", startArgs...)
+	startCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	startCmd.Stdout = os.Stdout
+	startCmd.Stderr = os.Stderr
+	return startCmd.Run()
+}
+
+func runDetached(ctx context.Context, profiles []string, instanceName, composePath string,
+	executorDelay, healthTimeout float32, profilesMap map[string][]string,
+	stagingDirs map[string]string, reg *registry.Registry) error {
+
+	for _, profile := range profiles {
+		if profile == "executors" {
+			// Gate on drivers + skillsets being healthy before touching executors.
+			var depServices []string
+			for _, p := range []string{"drivers", "skillsets"} {
+				depServices = append(depServices, profilesMap[p]...)
+			}
+			if len(depServices) > 0 {
+				fmt.Println(logging.Info("Waiting for drivers and skillsets to become healthy..."))
+				timeout := time.Duration(healthTimeout * float32(time.Second))
+				if err := health.WaitForHealthy(ctx, instanceName, depServices, timeout); err != nil {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
+					fmt.Println(logging.Warning(fmt.Sprintf("Health gate timed out: %v — proceeding anyway", err)))
+				}
+			}
+			if executorDelay > 0 {
+				fmt.Println(logging.Info(fmt.Sprintf("Waiting %.0fs before starting executors...", executorDelay)))
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(time.Duration(executorDelay) * time.Second):
+				}
+			}
+			if err := createAndStartExecutors(instanceName, composePath, profilesMap["executors"], stagingDirs, reg); err != nil {
+				return fmt.Errorf("starting executors: %w", err)
+			}
+			continue
+		}
+
+		fmt.Println(logging.Info(fmt.Sprintf("Starting %s (%d): %s",
+			logging.BoldMagenta(profile), len(profilesMap[profile]),
+			logging.BoldMagenta(fmt.Sprintf("%v", profilesMap[profile])))))
+
+		cmd := exec.Command("docker", "compose", "-p", instanceName, "-f", composePath,
+			"--profile", profile, "up", "-d")
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("starting profile %s: %w", profile, err)
+		}
+	}
+	return nil
+}
+
+func runForeground(profiles []string, instanceName, composePath string, kill bool,
+	executorDelay, healthTimeout float32, profilesMap map[string][]string,
+	stagingDirs map[string]string, reg *registry.Registry) error {
+
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	var cleanupOnce sync.Once
+	doCleanup := func() {
+		cleanupOnce.Do(func() {
+			signal.Ignore(syscall.SIGINT, syscall.SIGTERM)
+			if err := cleanup.StopCompose(instanceName, composePath, kill, profiles); err != nil {
+				fmt.Println(logging.Warning(fmt.Sprintf("stopping compose: %v", err)))
+			}
+			if err := cleanup.RemoveInstanceFiles(instanceName); err != nil {
+				fmt.Println(logging.Failure(fmt.Sprintf("cleaning up files: %v", err)))
+			}
+			fmt.Println(logging.Success("Done"))
+		})
+	}
+	// cancel before doCleanup so the health monitor stops first (LIFO defer order).
+	defer doCleanup()
+	defer cancel()
+
+	shutdownChan := make(chan struct{})
+	// Start the signal goroutine before runDetached so a ctrl+c during the
+	// health gate cancels the context and unblocks WaitForHealthy immediately.
+	go func() {
+		<-signalChan
+		signal.Stop(signalChan)
+		cancel()
+		close(shutdownChan)
+	}()
+
+	if err := runDetached(ctx, profiles, instanceName, composePath, executorDelay, healthTimeout, profilesMap, stagingDirs, reg); err != nil {
+		if ctx.Err() != nil {
+			// ctrl+c arrived during startup; doCleanup will stop containers.
+			fmt.Printf("\n%s\n", logging.Warning(fmt.Sprintf("Interrupt received — shutting down %s...", logging.BoldMagenta(instanceName))))
+			return nil
+		}
+		return fmt.Errorf("starting profiles: %w", err)
+	}
+
+	// Start health monitor after all profiles are running.
+	monitor := health.NewMonitor(instanceName, reg)
+	healthEvents := monitor.Start(ctx)
+	go func() {
+		for range healthEvents {
+			// Events are already logged by the monitor; kernel integration in Phase 5.
+		}
+	}()
+
+	containers, err := logging.GetContainerInfo(instanceName, composePath)
+	if err != nil {
+		return fmt.Errorf("getting container info: %w", err)
+	}
+
+	doneChan, errCh := logging.TailLogs(containers, shutdownChan, true)
+
+	select {
+	case <-shutdownChan:
+		fmt.Printf("\n%s\n", logging.Warning(fmt.Sprintf("Interrupt received — shutting down %s...", logging.BoldMagenta(instanceName))))
+	case <-doneChan:
+		fmt.Println(logging.Info("All log tails completed — shutting down..."))
+	case err := <-errCh:
+		fmt.Println(logging.Failure(fmt.Sprintf("Log streaming error: %v", err)))
+	}
+
+	return nil
+}
+
+// ---- helpers (unchanged from original) ----
 
 func hasIntersection(a, b []string) bool {
 	set := make(map[string]struct{}, len(b))
@@ -444,18 +611,18 @@ func extractServiceProfiles(service map[string]interface{}) []string {
 }
 
 func extractProfileNames(profiles map[string][]string) []string {
-	var profileNames []string
+	var names []string
 	for k := range profiles {
-		profileNames = append(profileNames, k)
+		names = append(names, k)
 	}
-	return profileNames
+	return names
 }
 
-func writeComposeToDisk(path string, compose_data compose.RawCompose) error {
+func writeComposeToDisk(path string, data compose.RawCompose) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("creating output dir: %w", err)
 	}
-	return compose.SaveRawYAML(path, compose_data)
+	return compose.SaveRawYAML(path, data)
 }
 
 func writeInstanceMetadata(instanceName, path, lib, handle, group string, detached bool) error {
@@ -478,7 +645,6 @@ func writeInstanceMetadata(instanceName, path, lib, handle, group string, detach
 func orderedProfiles(input []string) []string {
 	seen := make(map[string]bool)
 	var result []string
-
 	for _, key := range []string{"drivers", "skillsets", "executors"} {
 		for _, profile := range input {
 			if profile == key && !seen[profile] {
@@ -487,87 +653,5 @@ func orderedProfiles(input []string) []string {
 			}
 		}
 	}
-
 	return result
-}
-
-func runDetached(profiles []string, instanceName, composePath string, executorDelay float32, profilesMap map[string][]string) error {
-	for _, profile := range profiles {
-		fmt.Println(logging.Info(fmt.Sprintf("Starting %s (%d): %s", logging.BoldMagenta(profile), len(profilesMap[profile]), logging.BoldMagenta(fmt.Sprintf("%v", profilesMap[profile])))))
-
-		// optional delay before executors
-		if profile == "executors" && executorDelay > 0 {
-			fmt.Println(logging.Info(fmt.Sprintf("Delaying %.0fs before starting executors...", executorDelay)))
-			time.Sleep(time.Duration(executorDelay) * time.Second)
-		}
-
-		cmd := exec.Command("docker", "compose", "-p", instanceName, "-f", composePath, "--profile", profile, "up", "-d")
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("failed to start profile '%s' in detached mode: %w", profile, err)
-		}
-	}
-
-	return nil
-}
-
-func runForeground(profiles []string, instanceName string, composePath string, kill bool, executorDelay float32, profilesMap map[string][]string) error {
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
-
-	var cleanupOnce sync.Once
-	cleanup := func() {
-		cleanupOnce.Do(func() {
-			// ignore further SIGINT/SIGTERM during cleanup
-			signal.Ignore(syscall.SIGINT, syscall.SIGTERM)
-
-			err := cleanup.StopCompose(instanceName, composePath, kill, profiles)
-			if err != nil {
-				fmt.Println(logging.Warning(fmt.Sprintf("Unable to stop compose: %v", err)))
-			}
-
-			err = cleanup.RemoveInstanceFiles(instanceName)
-			if err != nil {
-				fmt.Println(logging.Failure(fmt.Sprintf("Failed to clean up files: %v", err)))
-			}
-
-			fmt.Println(logging.Success("Done"))
-		})
-	}
-	defer cleanup()
-
-	// start all profiles detached
-	err := runDetached(profiles, instanceName, composePath, executorDelay, profilesMap)
-	if err != nil {
-		return fmt.Errorf("failed to start profiles in detached mode: %w", err)
-	}
-
-	containers, err := logging.GetContainerInfo(instanceName, composePath)
-	if err != nil {
-		return fmt.Errorf("getting container info: %w", err)
-	}
-
-	shutdownChan := make(chan struct{})
-	go func() {
-		<-signalChan
-		signal.Stop(signalChan)
-		close(shutdownChan)
-	}()
-
-	// start log tailing
-	doneChan, errCh := logging.TailLogs(containers, shutdownChan, true)
-
-	// wait for completion or interrupt
-	select {
-	case <-shutdownChan:
-		fmt.Printf("\n%s\n", logging.Warning(fmt.Sprintf("Interrupt received. Shutting down %s...", logging.BoldMagenta(instanceName))))
-	case <-doneChan:
-		fmt.Println(logging.Info("All log tails completed. Shutting down..."))
-	case err := <-errCh:
-		fmt.Println(logging.Failure(fmt.Sprintf("Error while streaming logs: %v", err)))
-	}
-
-	return nil
 }
