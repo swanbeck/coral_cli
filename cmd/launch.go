@@ -359,10 +359,9 @@ func buildMergedCompose(cf *compose.ComposeFile, lib, hostLib string,
 		fmt.Println(logging.Info(fmt.Sprintf(
 			"Extracted interfaces from %s for %s", image, logging.BoldMagenta(name))))
 
-		// Merge the image's docker.yaml (now at docker/<imageID>.yaml) into the service
-		// config — identical to the previous behaviour.
+		// Merge docker.yaml from the staging directory into the service config.
 		baseSvc := rawServices[name].(map[string]interface{})
-		extractedPath := filepath.Join(lib, "docker", imageID+".yaml")
+		extractedPath := filepath.Join(stagingDir, "docker.yaml")
 		var mergedSvc map[string]interface{}
 		if _, err := os.Stat(extractedPath); err == nil {
 			extracted, err := compose.LoadRawYAML(extractedPath)
@@ -429,10 +428,7 @@ func createAndStartExecutors(instanceName, composePath string, executorServices 
 		return fmt.Errorf("creating executor containers: %w", err)
 	}
 
-	allStagingDirs, err := reg.AllStagingDirsForInstance(instanceName)
-	if err != nil {
-		fmt.Println(logging.Warning(fmt.Sprintf("recording staging-dir references for %s: %v", instanceName, err)))
-	}
+	allStagingDirs := reg.AllStagingDirs()
 
 	for _, svc := range executorServices {
 		containerID, err := health.GetContainerIDForService(instanceName, svc)

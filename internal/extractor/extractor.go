@@ -15,8 +15,8 @@ import (
 
 // ExtractLibraries probes an image by creating a stopped container, reading LIB_PATH
 // from its environment, copying the library tree to staging/<imageID>/ under lib, then
-// removing the probe container.  The docker.yaml found in the staging directory (if any)
-// is moved to docker/<imageID>.yaml so buildMergedCompose can pick it up as before.
+// removing the probe container.  docker.yaml (if present) stays inside the staging
+// directory alongside the behavior/interface libraries.
 //
 // If the staging directory for this imageID already exists the function is a no-op
 // (idempotent — same image, same content).
@@ -73,16 +73,6 @@ func ExtractLibraries(image, name, lib string) (stagingDir string, imageID strin
 	if err := cpCmd.Run(); err != nil {
 		os.RemoveAll(stagingDir)
 		return "", "", fmt.Errorf("copying from probe container for %s: %w", image, err)
-	}
-
-	// Move docker.yaml to the conventional docker/<imageID>.yaml location so that
-	// buildMergedCompose finds it exactly as before.
-	srcYAML := filepath.Join(stagingDir, "docker.yaml")
-	if _, statErr := os.Stat(srcYAML); statErr == nil {
-		dstYAML := filepath.Join(lib, "docker", imageID+".yaml")
-		if mkErr := os.MkdirAll(filepath.Dir(dstYAML), 0755); mkErr == nil {
-			os.Rename(srcYAML, dstYAML)
-		}
 	}
 
 	fmt.Println(logging.Info(fmt.Sprintf(

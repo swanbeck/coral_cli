@@ -113,27 +113,18 @@ func (r *Registry) RecordExtraction(imageID, stagingDir, payloadID, instanceID s
 	return r.save()
 }
 
-// AllStagingDirsForInstance returns a snapshot of all currently recorded
-// imageID → stagingDir mappings and atomically registers instanceID as a user of each
-// one.  Call this before injecting libraries into an executor so that the executor's
-// instance holds references to staging dirs it did not itself extract.
-func (r *Registry) AllStagingDirsForInstance(instanceID string) (map[string]string, error) {
+// AllStagingDirs returns a snapshot of all currently recorded imageID → stagingDir
+// mappings.  This is a read-only query: executor injection consumes staging dirs but
+// does not hold a producer reference — staging dirs are kept alive only by the service
+// instances that run the corresponding image (tracked via InstanceIDs in each record).
+func (r *Registry) AllStagingDirs() map[string]string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	result := make(map[string]string, len(r.data.Extractions))
-	changed := false
 	for imageID, rec := range r.data.Extractions {
 		result[imageID] = rec.StagingDir
-		if !containsStr(rec.InstanceIDs, instanceID) {
-			rec.InstanceIDs = append(rec.InstanceIDs, instanceID)
-			r.data.Extractions[imageID] = rec
-			changed = true
-		}
 	}
-	if changed {
-		return result, r.save()
-	}
-	return result, nil
+	return result
 }
 
 // RemoveExtraction removes instanceID from the reference set for imageID.  The staging

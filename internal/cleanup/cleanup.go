@@ -76,7 +76,8 @@ func cleanupFromCompose(composePath, libPath, instanceName string, reg *registry
 		fmt.Printf("Warning: sweeping injection records for %s: %v\n", instanceName, err)
 	}
 
-	// Remove extraction records and staging directories.
+	// Remove extraction records and staging directories (docker.yaml lives inside the
+	// staging dir, so os.RemoveAll handles it without a separate pass).
 	stagingDirs, err := reg.RemoveExtractionsForInstance(instanceName)
 	if err != nil {
 		fmt.Printf("Warning: removing extraction records for %s: %v\n", instanceName, err)
@@ -85,31 +86,6 @@ func cleanupFromCompose(composePath, libPath, instanceName string, reg *registry
 	for _, dir := range stagingDirs {
 		if err := os.RemoveAll(dir); err != nil {
 			warn += fmt.Sprintf("removing staging dir %s: %v\n", dir, err)
-		}
-	}
-
-	// Also remove docker/<imageID>.yaml files; we still need to inspect the compose file
-	// to find them, but this is read-only (no docker calls needed).
-	rawCompose, err := compose.LoadRawYAML(composePath)
-	if err != nil {
-		return fmt.Errorf("loading compose for docker-yaml cleanup: %w", err)
-	}
-	if services, ok := rawCompose["services"].(map[string]interface{}); ok {
-		for name, svc := range services {
-			svcMap, ok := svc.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			imageName, ok := svcMap["image"].(string)
-			if !ok || imageName == "" {
-				continue
-			}
-			imageID, err := extractor.GetImageID(imageName)
-			if err != nil {
-				continue
-			}
-			imageID = imageID + "-coral-" + name
-			tryRemoveFileAndDirectory(filepath.Join(libPath, "docker", imageID+".yaml"))
 		}
 	}
 
@@ -151,7 +127,6 @@ func legacyCleanupFromCompose(composePath, libPath string) error {
 		if err := os.RemoveAll(stagingDir); err != nil && !os.IsNotExist(err) {
 			warn += fmt.Sprintf("removing %s: %v\n", stagingDir, err)
 		}
-		tryRemoveFileAndDirectory(filepath.Join(libPath, "docker", imageID+".yaml"))
 	}
 	if warn != "" {
 		return fmt.Errorf("%s", strings.TrimSpace(warn))
