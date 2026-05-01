@@ -10,7 +10,7 @@ import (
 	"coral_cli/internal/cleanup"
 	"coral_cli/internal/compose"
 	"coral_cli/internal/logging"
-	"coral_cli/internal/metadata"
+	"coral_cli/internal/util"
 )
 
 var (
@@ -46,7 +46,7 @@ func init() {
 	}
 
 	shutdownCmd.RegisterFlagCompletionFunc("name", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		metadataList, err := metadata.LoadAllMetadata()
+		metadataList, err := util.LoadAllMetadata()
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveError
 		}
@@ -59,7 +59,7 @@ func init() {
 		return suggestions, cobra.ShellCompDirectiveNoFileComp
 	})
 	shutdownCmd.RegisterFlagCompletionFunc("group", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		metadataList, err := metadata.LoadAllMetadata()
+		metadataList, err := util.LoadAllMetadata()
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveError
 		}
@@ -72,7 +72,7 @@ func init() {
 		return suggestions, cobra.ShellCompDirectiveNoFileComp
 	})
 	shutdownCmd.RegisterFlagCompletionFunc("handle", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		metadataList, err := metadata.LoadAllMetadata()
+		metadataList, err := util.LoadAllMetadata()
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveError
 		}
@@ -107,7 +107,7 @@ var shutdownCmd = &cobra.Command{
 }
 
 func shutdownAllInstances(kill bool) error {
-	metadataList, err := metadata.LoadAllMetadata()
+	metadataList, err := util.LoadAllMetadata()
 	if err != nil {
 		return fmt.Errorf("loading metadata: %w", err)
 	}
@@ -141,7 +141,7 @@ func shutdownAllInstances(kill bool) error {
 }
 
 func shutdownByName(name string, kill bool) error {
-	metadataList, err := metadata.LoadAllMetadata()
+	metadataList, err := util.LoadAllMetadata()
 	if err != nil {
 		return err
 	}
@@ -172,7 +172,7 @@ func shutdownByName(name string, kill bool) error {
 }
 
 func shutdownByHandle(handle string, kill bool) error {
-	metadataList, err := metadata.LoadAllMetadata()
+	metadataList, err := util.LoadAllMetadata()
 	if err != nil {
 		return err
 	}
@@ -203,7 +203,7 @@ func shutdownByHandle(handle string, kill bool) error {
 }
 
 func shutdownByGroup(group string, kill bool) error {
-	metadataList, err := metadata.LoadAllMetadata()
+	metadataList, err := util.LoadAllMetadata()
 	if err != nil {
 		return err
 	}

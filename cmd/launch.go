@@ -21,11 +21,10 @@ import (
 
 	"coral_cli/internal/cleanup"
 	"coral_cli/internal/compose"
-	"coral_cli/internal/extractor"
+	"coral_cli/internal/libs"
 	"coral_cli/internal/health"
-	"coral_cli/internal/io"
+	"coral_cli/internal/util"
 	"coral_cli/internal/logging"
-	"coral_cli/internal/metadata"
 	"coral_cli/internal/registry"
 )
 
@@ -150,7 +149,7 @@ func launch(composePath, envFile, handle, group string, detached, kill bool,
 
 	// load environment
 	env := make(map[string]string)
-	resolvedEnvFile, err := io.ResolveEnvFile(envFile)
+	resolvedEnvFile, err := util.ResolveEnvFile(envFile)
 	if err != nil {
 		return fmt.Errorf("resolving env file: %w", err)
 	}
@@ -170,7 +169,7 @@ func launch(composePath, envFile, handle, group string, detached, kill bool,
 	}
 
 	// resolve compose file
-	resolvedComposePath, err := io.ResolveComposeFile(composePath)
+	resolvedComposePath, err := util.ResolveComposeFile(composePath)
 	if err != nil {
 		return err
 	}
@@ -297,7 +296,7 @@ func checkImagesLocal(cf *compose.ComposeFile, profilesToStart []string) error {
 		if len(profilesToStart) > 0 && !hasIntersection(profs, profilesToStart) {
 			continue
 		}
-		if _, err := extractor.GetImageID(image); err != nil {
+		if _, err := libs.GetImageID(image); err != nil {
 			return fmt.Errorf("checking image %s for service %s: %w", image, name, err)
 		}
 	}
@@ -341,7 +340,7 @@ func buildMergedCompose(cf *compose.ComposeFile, lib, hostLib string,
 			profilesMap[p] = append(profilesMap[p], name)
 		}
 
-		stagingDir, imageID, err := extractor.ExtractLibraries(image, name, lib)
+		stagingDir, imageID, err := libs.ExtractLibraries(image, name, lib)
 		if err != nil {
 			return nil, nil, fmt.Errorf("extracting %s for service %s: %w", image, name, err)
 		}
@@ -423,7 +422,7 @@ func createAndStartExecutors(instanceName, composePath string, executorServices 
 		if err != nil || containerID == "" {
 			return fmt.Errorf("locating container for executor service %s: %w", svc, err)
 		}
-		injected, err := extractor.InjectLibraries(containerID, allStagingDirs)
+		injected, err := libs.InjectLibraries(containerID, allStagingDirs)
 		if err != nil {
 			return fmt.Errorf("injecting libraries into %s: %w", svc, err)
 		}
@@ -613,7 +612,7 @@ func writeComposeToDisk(path string, data compose.RawCompose) error {
 }
 
 func writeInstanceMetadata(instanceName, path, lib, handle, group string, detached bool) error {
-	meta := metadata.InstanceMetadata{
+	meta := util.InstanceMetadata{
 		Name:        instanceName,
 		ComposeFile: path,
 		CreatedAt:   time.Now().Format(time.RFC3339),

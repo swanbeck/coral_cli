@@ -9,9 +9,9 @@ import (
 	"syscall"
 
 	"coral_cli/internal/compose"
-	"coral_cli/internal/extractor"
+	"coral_cli/internal/libs"
 	"coral_cli/internal/health"
-	"coral_cli/internal/metadata"
+	"coral_cli/internal/util"
 	"coral_cli/internal/registry"
 )
 
@@ -40,7 +40,7 @@ func StopCompose(instanceName string, composePath string, kill bool, profiles []
 }
 
 func RemoveInstanceFiles(instanceName string) error {
-	meta, metaPath, err := metadata.LoadInstanceMetadata(instanceName)
+	meta, metaPath, err := util.LoadInstanceMetadata(instanceName)
 	if err != nil {
 		fmt.Printf("Error loading instance metadata: %v\n", err)
 	}
@@ -121,7 +121,7 @@ func legacyCleanupFromCompose(composePath, libPath string) error {
 		if !ok || imageName == "" {
 			continue
 		}
-		imageID, err := extractor.GetImageID(imageName)
+		imageID, err := libs.GetImageID(imageName)
 		if err != nil {
 			fmt.Printf("Skipping cleanup for %s: %v\n", name, err)
 			continue

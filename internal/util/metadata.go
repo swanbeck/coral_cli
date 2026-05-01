@@ -1,4 +1,4 @@
-package metadata
+package util
 
 import (
 	"encoding/json"
@@ -56,7 +56,7 @@ func LoadAllMetadata() ([]InstanceMetadata, error) {
 		return nil, fmt.Errorf("reading metadata dir: %w", err)
 	}
 
-	var metadata []InstanceMetadata
+	var instances []InstanceMetadata
 	for _, f := range files {
 		if !strings.HasSuffix(f.Name(), ".json") {
 			continue
@@ -67,8 +67,8 @@ func LoadAllMetadata() ([]InstanceMetadata, error) {
 		}
 		var meta InstanceMetadata
 		if err := json.Unmarshal(data, &meta); err == nil {
-			metadata = append(metadata, meta)
+			instances = append(instances, meta)
 		}
 	}
-	return metadata, nil
+	return instances, nil
 }

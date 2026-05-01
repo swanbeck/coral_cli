@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"coral_cli/internal/extractor"
+	"coral_cli/internal/libs"
 	"coral_cli/internal/logging"
 )
 
@@ -67,7 +67,7 @@ func verify(imageName string, libDir string) error {
 		tmpLib = libDir
 	}
 
-	_, _, err = extractor.ExtractLibraries(imageName, "verify", tmpLib)
+	_, _, err = libs.ExtractLibraries(imageName, "verify", tmpLib)
 	if err != nil {
 		return fmt.Errorf("extraction failed — ensure LIB_PATH is set and contains behaviors/ and interfaces/: %w", err)
 	}

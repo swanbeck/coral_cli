@@ -11,7 +11,7 @@ import (
 
 	"github.com/fatih/color"
 
-	"coral_cli/internal/metadata"
+	"coral_cli/internal/util"
 )
 
 var (
@@ -44,7 +44,7 @@ func Failure(msg string) string {
 	return Red("[FAILURE] ") + msg
 }
 
-func TailLogs(containers []metadata.ContainerInfo, doneChan <-chan struct{}, tailAll bool) (<-chan struct{}, <-chan error) {
+func TailLogs(containers []util.ContainerInfo, doneChan <-chan struct{}, tailAll bool) (<-chan struct{}, <-chan error) {
 	colors := []color.Attribute{
 		color.FgHiRed,
 		color.FgHiGreen,
@@ -80,7 +80,7 @@ func TailLogs(containers []metadata.ContainerInfo, doneChan <-chan struct{}, tai
 		}
 
 		wg.Add(1)
-		go func(c metadata.ContainerInfo, clr *color.Color) {
+		go func(c util.ContainerInfo, clr *color.Color) {
 			defer wg.Done()
 
 			cmd := exec.Command("docker", "logs", "-f", c.ID)
@@ -127,8 +127,8 @@ func TailLogs(containers []metadata.ContainerInfo, doneChan <-chan struct{}, tai
 
 }
 
-func GetContainerInfo(instanceName string, composePath string) ([]metadata.ContainerInfo, error) {
-	var containers []metadata.ContainerInfo
+func GetContainerInfo(instanceName string, composePath string) ([]util.ContainerInfo, error) {
+	var containers []util.ContainerInfo
 
 	args := []string{"compose", "-p", instanceName, "-f", composePath, "ps", "-q"}
 	out, err := exec.Command("docker", args...).Output()
@@ -155,7 +155,7 @@ func GetContainerInfo(instanceName string, composePath string) ([]metadata.Conta
 		}
 		serviceName = suffixRegex.ReplaceAllString(serviceName, "")
 
-		containers = append(containers, metadata.ContainerInfo{
+		containers = append(containers, util.ContainerInfo{
 			ID:      id,
 			Name:    fullName,
 			Service: serviceName,
