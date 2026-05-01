@@ -136,10 +136,8 @@ func InjectLibraries(containerID string, stagingDirs map[string]string) ([]regis
 		tmpDir+"/.",
 		fmt.Sprintf("%s:/home/loading/lib", containerID))
 	cpCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cpCmd.Stdout = os.Stdout
-	cpCmd.Stderr = os.Stderr
-	if err := cpCmd.Run(); err != nil {
-		return nil, fmt.Errorf("injecting libraries into %s: %w", shortContainerID(containerID), err)
+	if out, err := cpCmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("injecting libraries into %s: %w\n%s", shortContainerID(containerID), err, out)
 	}
 
 	return result, nil

@@ -68,11 +68,9 @@ func ExtractLibraries(image, name, lib string) (stagingDir string, imageID strin
 		fmt.Sprintf("%s:%s/.", containerID, libPath), // trailing "/." = copy contents
 		stagingDir)
 	cpCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cpCmd.Stdout = os.Stdout
-	cpCmd.Stderr = os.Stderr
-	if err := cpCmd.Run(); err != nil {
+	if out, err := cpCmd.CombinedOutput(); err != nil {
 		os.RemoveAll(stagingDir)
-		return "", "", fmt.Errorf("copying from probe container for %s: %w", image, err)
+		return "", "", fmt.Errorf("copying from probe container for %s: %w\n%s", image, err, out)
 	}
 
 	fmt.Println(logging.Info(fmt.Sprintf(

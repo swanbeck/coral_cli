@@ -233,6 +233,20 @@ func (r *Registry) GetExecutorsForPayload(payloadID string) []InjectionRecord {
 	return result
 }
 
+// CleanupIfEmpty removes registry.json when both maps are empty.  Call after any
+// cleanup operation as a best-effort housekeeping step; safe to call on a non-empty
+// registry (it becomes a no-op).
+func (r *Registry) CleanupIfEmpty() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.data.Extractions) == 0 && len(r.data.Injections) == 0 {
+		if err := os.Remove(r.path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *Registry) save() error {
 	raw, err := json.MarshalIndent(r.data, "", "  ")
 	if err != nil {

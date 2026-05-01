@@ -55,10 +55,17 @@ func RemoveInstanceFiles(instanceName string) error {
 	if regErr != nil {
 		fmt.Printf("Warning: could not load registry, skipping registry cleanup: %v\n", regErr)
 		// Fall back to legacy docker-inspect-based cleanup.
-		return legacyCleanupFromCompose(composeFile, libPath)
+		cleanErr := legacyCleanupFromCompose(composeFile, libPath)
+		tryRemoveDirIfEmpty(filepath.Join(libPath, "staging"))
+		return cleanErr
 	}
 
-	return cleanupFromCompose(composeFile, libPath, instanceName, reg)
+	cleanErr := cleanupFromCompose(composeFile, libPath, instanceName, reg)
+	tryRemoveDirIfEmpty(filepath.Join(libPath, "staging"))
+	if err := reg.CleanupIfEmpty(); err != nil {
+		fmt.Printf("Warning: cleaning up registry: %v\n", err)
+	}
+	return cleanErr
 }
 
 // cleanupFromCompose removes staging directories and registry records for all services
