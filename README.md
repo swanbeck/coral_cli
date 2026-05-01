@@ -198,7 +198,7 @@ coral verify <IMAGE_NAME>:<IMAGE_TAG>
 ### Citation
 If you find Coral useful in your work, please consider citing our paper:
 ```
-@inproceedings{swanbeck_coral_2025,
+@inproceedings{swanbeck_coral_2026,
     author={Swanbeck, Steven and Pryor, Mitch},
     booktitle={2026 IEEE/SICE International Symposium on System Integration (SII)}, 
     title={CORAL: A Unifying Abstraction Layer for Compositional Robotics Software}, 

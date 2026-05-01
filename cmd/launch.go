@@ -228,7 +228,7 @@ func launch(composePath, envFile, handle, group string, detached, kill bool,
 		return fmt.Errorf("loading registry: %w", err)
 	}
 
-	mergedCompose, profilesMap, stagingDirs, err := buildMergedCompose(
+	mergedCompose, profilesMap, err := buildMergedCompose(
 		parsedCompose, libPath, hostLibPath, profilesToStart, instanceName, reg)
 	if err != nil {
 		return err
@@ -282,9 +282,9 @@ func launch(composePath, envFile, handle, group string, detached, kill bool,
 			case <-dCtx.Done():
 			}
 		}()
-		return runDetached(dCtx, profiles, instanceName, outputPath, executorDelay, healthTimeout, profilesMap, stagingDirs, reg)
+		return runDetached(dCtx, profiles, instanceName, outputPath, executorDelay, healthTimeout, profilesMap, reg)
 	}
-	return runForeground(profiles, instanceName, outputPath, kill, executorDelay, healthTimeout, profilesMap, stagingDirs, reg)
+	return runForeground(profiles, instanceName, outputPath, kill, executorDelay, healthTimeout, profilesMap, reg)
 }
 
 func checkImagesLocal(cf *compose.ComposeFile, profilesToStart []string) error {
@@ -308,21 +308,19 @@ func checkImagesLocal(cf *compose.ComposeFile, profilesToStart []string) error {
 	return nil
 }
 
-// buildMergedCompose extracts library artifacts from each service image and builds
-// the merged compose map.  It returns the staging directory for each imageID so that
-// InjectLibraries can populate executor containers before they are started.
+// buildMergedCompose extracts library artifacts from each service image, records them
+// in the registry, and builds the merged compose map.
 func buildMergedCompose(cf *compose.ComposeFile, lib, hostLib string,
 	profilesToStart []string, instanceName string, reg *registry.Registry,
-) (compose.RawCompose, map[string][]string, map[string]string, error) {
+) (compose.RawCompose, map[string][]string, error) {
 
 	rawCompose, err := cf.ToMap()
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("converting compose to map: %w", err)
+		return nil, nil, fmt.Errorf("converting compose to map: %w", err)
 	}
 	rawServices := rawCompose["services"].(map[string]interface{})
 	merged := compose.RawCompose{"services": map[string]interface{}{}}
 	profilesMap := map[string][]string{}
-	stagingDirs := map[string]string{} // imageID → stagingDir
 
 	// hostLib is used only for volume-mount path rewriting in compose files (the same
 	// logic as before).  docker cp operations use local paths and are unaffected.
@@ -351,9 +349,8 @@ func buildMergedCompose(cf *compose.ComposeFile, lib, hostLib string,
 
 		stagingDir, imageID, err := extractor.ExtractLibraries(image, name, lib)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("extracting %s for service %s: %w", image, name, err)
+			return nil, nil, fmt.Errorf("extracting %s for service %s: %w", image, name, err)
 		}
-		stagingDirs[imageID] = stagingDir
 
 		if err := reg.RecordExtraction(imageID, stagingDir, imageID, instanceName); err != nil {
 			fmt.Println(logging.Warning(fmt.Sprintf("recording extraction for %s: %v", name, err)))
@@ -370,7 +367,7 @@ func buildMergedCompose(cf *compose.ComposeFile, lib, hostLib string,
 		if _, err := os.Stat(extractedPath); err == nil {
 			extracted, err := compose.LoadRawYAML(extractedPath)
 			if err != nil {
-				return nil, nil, nil, fmt.Errorf("loading extracted compose for %s: %w", name, err)
+				return nil, nil, fmt.Errorf("loading extracted compose for %s: %w", name, err)
 			}
 			mergedSvc = compose.MergeServiceConfigs(baseSvc, extracted)
 		} else {
@@ -408,15 +405,20 @@ func buildMergedCompose(cf *compose.ComposeFile, lib, hostLib string,
 		merged["services"].(map[string]interface{})[name] = mergedSvc
 	}
 
-	return merged, profilesMap, stagingDirs, nil
+	return merged, profilesMap, nil
 }
 
 // createAndStartExecutors performs the three-phase executor launch:
 //  1. docker compose create  — allocate containers without starting them
 //  2. InjectLibraries        — copy behavior/interface .so files into each container
 //  3. docker compose start   — start the containers
+//
+// Libraries are sourced from ALL staging directories recorded in the registry, not just
+// those extracted during the current launch invocation.  This ensures that a
+// `coral launch -p executors` command picks up libraries from drivers and skillsets
+// that were launched (and extracted) in a prior invocation.
 func createAndStartExecutors(instanceName, composePath string, executorServices []string,
-	stagingDirs map[string]string, reg *registry.Registry) error {
+	reg *registry.Registry) error {
 
 	createArgs := []string{"compose", "-p", instanceName, "-f", composePath, "--profile", "executors", "create"}
 	createCmd := exec.Command("docker", createArgs...)
@@ -427,12 +429,14 @@ func createAndStartExecutors(instanceName, composePath string, executorServices 
 		return fmt.Errorf("creating executor containers: %w", err)
 	}
 
+	allStagingDirs := reg.AllStagingDirs()
+
 	for _, svc := range executorServices {
 		containerID, err := health.GetContainerIDForService(instanceName, svc)
 		if err != nil || containerID == "" {
 			return fmt.Errorf("locating container for executor service %s: %w", svc, err)
 		}
-		injected, err := extractor.InjectLibraries(containerID, stagingDirs)
+		injected, err := extractor.InjectLibraries(containerID, allStagingDirs)
 		if err != nil {
 			return fmt.Errorf("injecting libraries into %s: %w", svc, err)
 		}
@@ -459,7 +463,7 @@ func createAndStartExecutors(instanceName, composePath string, executorServices 
 
 func runDetached(ctx context.Context, profiles []string, instanceName, composePath string,
 	executorDelay, healthTimeout float32, profilesMap map[string][]string,
-	stagingDirs map[string]string, reg *registry.Registry) error {
+	reg *registry.Registry) error {
 
 	for _, profile := range profiles {
 		if profile == "executors" {
@@ -486,7 +490,7 @@ func runDetached(ctx context.Context, profiles []string, instanceName, composePa
 				case <-time.After(time.Duration(executorDelay) * time.Second):
 				}
 			}
-			if err := createAndStartExecutors(instanceName, composePath, profilesMap["executors"], stagingDirs, reg); err != nil {
+			if err := createAndStartExecutors(instanceName, composePath, profilesMap["executors"], reg); err != nil {
 				return fmt.Errorf("starting executors: %w", err)
 			}
 			continue
@@ -510,7 +514,7 @@ func runDetached(ctx context.Context, profiles []string, instanceName, composePa
 
 func runForeground(profiles []string, instanceName, composePath string, kill bool,
 	executorDelay, healthTimeout float32, profilesMap map[string][]string,
-	stagingDirs map[string]string, reg *registry.Registry) error {
+	reg *registry.Registry) error {
 
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
@@ -544,7 +548,7 @@ func runForeground(profiles []string, instanceName, composePath string, kill boo
 		close(shutdownChan)
 	}()
 
-	if err := runDetached(ctx, profiles, instanceName, composePath, executorDelay, healthTimeout, profilesMap, stagingDirs, reg); err != nil {
+	if err := runDetached(ctx, profiles, instanceName, composePath, executorDelay, healthTimeout, profilesMap, reg); err != nil {
 		if ctx.Err() != nil {
 			// ctrl+c arrived during startup; doCleanup will stop containers.
 			fmt.Printf("\n%s\n", logging.Warning(fmt.Sprintf("Interrupt received — shutting down %s...", logging.BoldMagenta(instanceName))))

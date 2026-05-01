@@ -170,6 +170,19 @@ func (r *Registry) GetExecutorsForPayload(payloadID string) []InjectionRecord {
 	return result
 }
 
+// AllStagingDirs returns a snapshot of all currently recorded imageID → stagingDir mappings
+// across every instance.  Used so executor injection sweeps all available payload libraries,
+// not just those extracted by the current launch invocation.
+func (r *Registry) AllStagingDirs() map[string]string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	result := make(map[string]string, len(r.data.Extractions))
+	for imageID, rec := range r.data.Extractions {
+		result[imageID] = rec.StagingDir
+	}
+	return result
+}
+
 func (r *Registry) save() error {
 	raw, err := json.MarshalIndent(r.data, "", "  ")
 	if err != nil {
