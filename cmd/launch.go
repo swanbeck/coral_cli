@@ -429,7 +429,10 @@ func createAndStartExecutors(instanceName, composePath string, executorServices 
 		return fmt.Errorf("creating executor containers: %w", err)
 	}
 
-	allStagingDirs := reg.AllStagingDirs()
+	allStagingDirs, err := reg.AllStagingDirsForInstance(instanceName)
+	if err != nil {
+		fmt.Println(logging.Warning(fmt.Sprintf("recording staging-dir references for %s: %v", instanceName, err)))
+	}
 
 	for _, svc := range executorServices {
 		containerID, err := health.GetContainerIDForService(instanceName, svc)
