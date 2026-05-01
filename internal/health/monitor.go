@@ -17,13 +17,12 @@ type EventType int
 const (
 	EventContainerUnhealthy EventType = iota
 	EventContainerExited
-	// EventLibraryDegraded fires when a payload that contributed libraries to an executor
-	// is no longer running its skillset/driver backend. The executor itself is unaffected
-	// (libraries are already inside the container), but the behaviors may fail at runtime.
+	// fires when a payload that contributed libraries to an executor is no longer running its skillset/driver backend; the executor itself is unaffected
+	// (libraries are already inside the container), but the behaviors may fail at runtime
 	EventLibraryDegraded
 )
 
-// HealthEvent is emitted by the Monitor when a container or library dependency degrades.
+// emitted by the Monitor when a container or library dependency degrades
 type HealthEvent struct {
 	Type        EventType
 	ContainerID string
@@ -34,8 +33,7 @@ type HealthEvent struct {
 
 const pollInterval = 5 * time.Second
 
-// Monitor polls Docker container health for a compose instance and emits HealthEvents
-// when containers become unhealthy or library backends are lost.
+// polls Docker container health for a compose instance and emits HealthEvents when containers become unhealthy or library backends are lost
 type Monitor struct {
 	instanceName string
 	reg          *registry.Registry
@@ -45,8 +43,6 @@ func NewMonitor(instanceName string, reg *registry.Registry) *Monitor {
 	return &Monitor{instanceName: instanceName, reg: reg}
 }
 
-// Start launches the polling goroutine and returns a channel of health events.
-// The channel is closed when ctx is cancelled.
 func (m *Monitor) Start(ctx context.Context) <-chan HealthEvent {
 	events := make(chan HealthEvent, 16)
 	go func() {
@@ -112,9 +108,7 @@ func (m *Monitor) checkLibraryDegradation(deadContainerID, svcName string, event
 	}
 }
 
-// WaitForHealthy blocks until all containers for the given services are healthy (or
-// running without a health check), or until timeout expires. A cancelled context
-// returns immediately.
+// blocks until all containers for the given services are healthy (or running without a health check), or until timeout expires; a cancelled context returns immediately
 func WaitForHealthy(ctx context.Context, instanceName string, services []string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
@@ -150,12 +144,8 @@ func isReady(status string) bool {
 	return status == "healthy" || status == "running_no_healthcheck"
 }
 
-// containerStatus returns a normalised status and the compose service name.
+// returns a normalised status and the compose service name
 func containerStatus(containerID string) (status, serviceName string) {
-	// Use {{if .State.Health}} to emit a single token "none" instead of the
-	// two-token "<no value>" that the plain .State.Health.Status template
-	// produces for containers without a healthcheck. A multi-token output
-	// shifts all subsequent fields and causes isReady to never return true.
 	cmd := exec.Command("docker", "inspect",
 		"--format", `{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} {{.State.Status}} {{index .Config.Labels "com.docker.compose.service"}}`,
 		containerID)
@@ -184,7 +174,6 @@ func containerStatus(containerID string) (status, serviceName string) {
 	return health, svc
 }
 
-// GetContainerIDForService returns the container ID for a named service in a compose project.
 func GetContainerIDForService(instanceName, serviceName string) (string, error) {
 	cmd := exec.Command("docker", "ps", "-a",
 		"--filter", fmt.Sprintf("label=com.docker.compose.project=%s", instanceName),
@@ -199,7 +188,6 @@ func GetContainerIDForService(instanceName, serviceName string) (string, error) 
 	return strings.TrimSpace(string(out)), nil
 }
 
-// GetContainerIDsForProject returns all container IDs for a compose project.
 func GetContainerIDsForProject(instanceName string) ([]string, error) {
 	cmd := exec.Command("docker", "ps", "-a",
 		"--filter", fmt.Sprintf("label=com.docker.compose.project=%s", instanceName),

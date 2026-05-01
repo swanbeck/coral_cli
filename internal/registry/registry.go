@@ -8,10 +8,7 @@ import (
 	"sync"
 )
 
-// ExtractionRecord tracks what was extracted from a payload image into its staging directory.
-// InstanceIDs is a reference-counted set: every instance that has referenced (extracted or
-// injected from) this staging directory holds a slot.  The directory is deleted only when
-// the set becomes empty.
+// tracks what was extracted from a payload image into its staging directory; InstanceIDs is a reference-counted set: every instance that has referenced (extracted or injected from) this staging directory holds a slot
 type ExtractionRecord struct {
 	ImageID     string   `json:"image_id"`
 	StagingDir  string   `json:"staging_dir"`
@@ -21,7 +18,7 @@ type ExtractionRecord struct {
 	InstanceID string `json:"instance_id,omitempty"`
 }
 
-// InjectedLib describes a single library file that was copied into an executor container.
+// describes a single library file that was copied into an executor container
 type InjectedLib struct {
 	PayloadID  string `json:"payload_id"`
 	LibName    string `json:"lib_name"`
@@ -30,7 +27,7 @@ type InjectedLib struct {
 	ShadowedBy string `json:"shadowed_by,omitempty"` // payload ID that provided the winning file
 }
 
-// InjectionRecord tracks which libraries were injected into an executor container.
+// tracks which libraries were injected into an executor container
 type InjectionRecord struct {
 	ContainerID string        `json:"container_id"`
 	InstanceID  string        `json:"instance_id"`
@@ -38,21 +35,18 @@ type InjectionRecord struct {
 }
 
 type registryData struct {
-	Extractions map[string]ExtractionRecord `json:"extractions"` // imageID → record
-	Injections  map[string]InjectionRecord  `json:"injections"`  // containerID → record
+	Extractions map[string]ExtractionRecord `json:"extractions"` // imageID -> record
+	Injections  map[string]InjectionRecord  `json:"injections"`  // containerID -> record
 }
 
-// Registry is a persistent, mutex-protected store of extraction and injection records.
-// It is written atomically (temp file + rename) on every mutation.
+// persistent, mutex-protected store of extraction and injection records; it is written atomically (temp file + rename) on every mutation
 type Registry struct {
 	data registryData
 	path string
 	mu   sync.Mutex
 }
 
-// Load reads the registry from $libPath/registry.json, creating an empty one if absent.
-// Old registry files using the deprecated single-string instance_id field are migrated
-// automatically.
+// reads the registry from $libPath/registry.json, creating an empty one if absent; old registry files using the deprecated single-string instance_id field are migrated automatically
 func Load(libPath string) (*Registry, error) {
 	path := filepath.Join(libPath, "registry.json")
 	r := &Registry{
@@ -89,9 +83,7 @@ func Load(libPath string) (*Registry, error) {
 	return r, nil
 }
 
-// RecordExtraction adds instanceID to the reference set for imageID.  If the record does
-// not yet exist, it is created with stagingDir/payloadID.  If it exists, stagingDir and
-// payloadID are left unchanged (the first extractor's values are canonical).
+// adds instanceID to the reference set for imageID; if the record does not yet exist, it is created with stagingDir/payloadID; if it exists, stagingDir and payloadID are left unchanged (the first extractor's values are canonical)
 func (r *Registry) RecordExtraction(imageID, stagingDir, payloadID, instanceID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -113,10 +105,8 @@ func (r *Registry) RecordExtraction(imageID, stagingDir, payloadID, instanceID s
 	return r.save()
 }
 
-// AllStagingDirs returns a snapshot of all currently recorded imageID → stagingDir
-// mappings.  This is a read-only query: executor injection consumes staging dirs but
-// does not hold a producer reference — staging dirs are kept alive only by the service
-// instances that run the corresponding image (tracked via InstanceIDs in each record).
+// returns a snapshot of all currently recorded imageID -> stagingDir mappings; this is a read-only query: executor injection consumes staging dirs but
+// does not hold a producer reference
 func (r *Registry) AllStagingDirs() map[string]string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -127,10 +117,7 @@ func (r *Registry) AllStagingDirs() map[string]string {
 	return result
 }
 
-// RemoveExtraction removes instanceID from the reference set for imageID.  The staging
-// directory path is returned (and should be deleted by the caller) only when the
-// reference set becomes empty.  An empty return value means other instances still hold
-// the directory.
+// removes instanceID from the reference set for imageID; the staging directory path is returned (and should be deleted by the caller) only when the reference set becomes empty; an empty return value means other instances still hold the directory
 func (r *Registry) RemoveExtraction(imageID, instanceID string) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -151,9 +138,7 @@ func (r *Registry) RemoveExtraction(imageID, instanceID string) (string, error) 
 	return "", r.save()
 }
 
-// RemoveExtractionsForInstance removes instanceID from the reference set of every
-// extraction record.  It returns the staging directory paths whose reference counts
-// have dropped to zero — those are safe to delete.
+// removes instanceID from the reference set of every extraction record; it returns the staging directory paths whose reference counts have dropped to zero (those are safe to delete)
 func (r *Registry) RemoveExtractionsForInstance(instanceID string) ([]string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -200,7 +185,7 @@ func (r *Registry) RemoveInjection(containerID string) error {
 	return r.save()
 }
 
-// RemoveInjectionsForInstance removes all injection records for an instance.
+// removes all injection records for an instance
 func (r *Registry) RemoveInjectionsForInstance(instanceID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -217,7 +202,7 @@ func (r *Registry) RemoveInjectionsForInstance(instanceID string) error {
 	return r.save()
 }
 
-// GetExecutorsForPayload returns all injection records that include libs from payloadID.
+// returns all injection records that include libs from payloadID
 func (r *Registry) GetExecutorsForPayload(payloadID string) []InjectionRecord {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -233,9 +218,7 @@ func (r *Registry) GetExecutorsForPayload(payloadID string) []InjectionRecord {
 	return result
 }
 
-// CleanupIfEmpty removes registry.json when both maps are empty.  Call after any
-// cleanup operation as a best-effort housekeeping step; safe to call on a non-empty
-// registry (it becomes a no-op).
+// removes registry.json when both maps are empty; call after any cleanup operation as a best-effort housekeeping step
 func (r *Registry) CleanupIfEmpty() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -9,19 +9,12 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/google/uuid"
 	"coral_cli/internal/logging"
+
+	"github.com/google/uuid"
 )
 
-// ExtractLibraries probes an image by creating a stopped container, reading LIB_PATH
-// from its environment, copying the library tree to staging/<imageID>/ under lib, then
-// removing the probe container.  docker.yaml (if present) stays inside the staging
-// directory alongside the behavior/interface libraries.
-//
-// If the staging directory for this imageID already exists the function is a no-op
-// (idempotent — same image, same content).
-//
-// The caller is responsible for recording the extraction in the registry.
+// probes an image by creating a stopped container, reading LIB_PATH from its environment, copying the library tree to staging/<imageID>/ under lib, then removing the probe container. docker.yaml (if present) stays inside the staging directory alongside the behavior/interface libraries; the caller is responsible for recording the extraction in the registry
 func ExtractLibraries(image, name, lib string) (stagingDir string, imageID string, err error) {
 	imageID, err = GetImageID(image)
 	if err != nil {
@@ -30,7 +23,7 @@ func ExtractLibraries(image, name, lib string) (stagingDir string, imageID strin
 	imageID = imageID + "-coral-" + name
 	stagingDir = filepath.Join(lib, "staging", imageID)
 
-	// Idempotent: skip if already extracted for this image.
+	// idempotent: skip if already extracted for this image.
 	if _, statErr := os.Stat(stagingDir); statErr == nil {
 		return stagingDir, imageID, nil
 	}
@@ -62,8 +55,7 @@ func ExtractLibraries(image, name, lib string) (stagingDir string, imageID strin
 		return "", "", fmt.Errorf("creating staging dir: %w", err)
 	}
 
-	// docker cp streams through the socket — no host-path translation needed even when
-	// CORAL itself is running inside a container.
+	// docker cp streams through the socket — no host-path translation needed even when CORAL itself is running inside a container
 	cpCmd := exec.Command("docker", "cp",
 		fmt.Sprintf("%s:%s/.", containerID, libPath), // trailing "/." = copy contents
 		stagingDir)
@@ -79,8 +71,7 @@ func ExtractLibraries(image, name, lib string) (stagingDir string, imageID strin
 	return stagingDir, imageID, nil
 }
 
-// readContainerEnv inspects a stopped container and returns the value of the named
-// environment variable, or "" if not set.
+// inspects a stopped container and returns the value of the named environment variable, or "" if not set
 func readContainerEnv(containerID, varName string) (string, error) {
 	cmd := exec.Command("docker", "inspect",
 		"--format", "{{json .Config.Env}}",
@@ -103,7 +94,7 @@ func readContainerEnv(containerID, varName string) (string, error) {
 	return "", nil
 }
 
-// GetImageID returns the full image digest for the named image, pulling it if absent.
+// returns the full image digest for the named image, pulling it if absent
 func GetImageID(image string) (string, error) {
 	inspectCmd := exec.Command("docker", "inspect", "--format={{.Id}}", image)
 	inspectCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

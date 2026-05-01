@@ -148,7 +148,7 @@ func launch(composePath, envFile, handle, group string, detached, kill bool,
 		receivedSignal.Store(true)
 	}()
 
-	// Load environment.
+	// load environment
 	env := make(map[string]string)
 	resolvedEnvFile, err := io.ResolveEnvFile(envFile)
 	if err != nil {
@@ -169,7 +169,7 @@ func launch(composePath, envFile, handle, group string, detached, kill bool,
 		}
 	}
 
-	// Resolve compose file.
+	// resolve compose file
 	resolvedComposePath, err := io.ResolveComposeFile(composePath)
 	if err != nil {
 		return err
@@ -179,7 +179,7 @@ func launch(composePath, envFile, handle, group string, detached, kill bool,
 		return fmt.Errorf("parsing compose file: %w", err)
 	}
 
-	// Resolve lib path: --lib-dir flag > $CORAL_LIB > ./lib fallback.
+	// resolve lib path
 	var libPath string
 	if libDirOverride != "" {
 		libPath = libDirOverride
@@ -202,9 +202,7 @@ func launch(composePath, envFile, handle, group string, detached, kill bool,
 		}
 	}
 
-	// When CORAL runs inside Docker, Docker volume mounts in compose files need host
-	// paths.  This is unchanged from before — only affects compose file generation,
-	// not docker cp operations (which stream through the socket).
+	// when CORAL runs inside Docker, Docker volume mounts in compose files need host paths; note that docker cp operations stream through the socket so no longer require special handling
 	isDocker := env["CORAL_IS_DOCKER"]
 	var hostLibPath string
 	if isDocker == "true" {
@@ -222,7 +220,7 @@ func launch(composePath, envFile, handle, group string, detached, kill bool,
 	instanceName := fmt.Sprintf("coral-%s", uuid.New())
 	fmt.Println(logging.Info("Launching new instance " + logging.BoldMagentaHi(instanceName)))
 
-	// Load (or create) the persistent registry.
+	// load (or create) the persistent registry
 	reg, err := registry.Load(libPath)
 	if err != nil {
 		return fmt.Errorf("loading registry: %w", err)
@@ -267,9 +265,7 @@ func launch(composePath, envFile, handle, group string, detached, kill bool,
 	signal.Reset(os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
 	if detached {
-		// Give the health gate a context that the user can cancel with ctrl+c.
-		// Containers already running are left up (detached mode intent); the
-		// process simply exits if the user interrupts during the health wait.
+		// give the health gate a context that the user can cancel with ctrl+c
 		dCtx, dCancel := context.WithCancel(context.Background())
 		defer dCancel()
 		dSigCh := make(chan os.Signal, 1)
@@ -308,8 +304,7 @@ func checkImagesLocal(cf *compose.ComposeFile, profilesToStart []string) error {
 	return nil
 }
 
-// buildMergedCompose extracts library artifacts from each service image, records them
-// in the registry, and builds the merged compose map.
+// extracts library artifacts from each service image, records them in the registry, and builds the merged compose map
 func buildMergedCompose(cf *compose.ComposeFile, lib, hostLib string,
 	profilesToStart []string, instanceName string, reg *registry.Registry,
 ) (compose.RawCompose, map[string][]string, error) {
@@ -322,8 +317,7 @@ func buildMergedCompose(cf *compose.ComposeFile, lib, hostLib string,
 	merged := compose.RawCompose{"services": map[string]interface{}{}}
 	profilesMap := map[string][]string{}
 
-	// hostLib is used only for volume-mount path rewriting in compose files (the same
-	// logic as before).  docker cp operations use local paths and are unaffected.
+	// hostLib is used only for volume-mount path rewriting in compose files
 	imageLib := lib
 	if hostLib != "" {
 		imageLib = hostLib
@@ -359,7 +353,7 @@ func buildMergedCompose(cf *compose.ComposeFile, lib, hostLib string,
 		fmt.Println(logging.Info(fmt.Sprintf(
 			"Extracted interfaces from %s for %s", image, logging.BoldMagenta(name))))
 
-		// Merge docker.yaml from the staging directory into the service config.
+		// merge docker.yaml from the staging directory into the service config
 		baseSvc := rawServices[name].(map[string]interface{})
 		extractedPath := filepath.Join(stagingDir, "docker.yaml")
 		var mergedSvc map[string]interface{}
@@ -373,8 +367,7 @@ func buildMergedCompose(cf *compose.ComposeFile, lib, hostLib string,
 			mergedSvc = baseSvc
 		}
 
-		// Rewrite relative host volume paths to absolute — and when CORAL is running
-		// inside Docker, rebase them onto hostLib so the Docker daemon can reach them.
+		// rewrite relative host volume paths to absolute - and when CORAL is running inside Docker, rebase them onto hostLib so the Docker daemon can reach them
 		if volumes, ok := mergedSvc["volumes"].([]interface{}); ok {
 			for i, v := range volumes {
 				volStr, ok := v.(string)
@@ -387,7 +380,7 @@ func buildMergedCompose(cf *compose.ComposeFile, lib, hostLib string,
 				}
 				hostPath := parts[0]
 				if filepath.IsAbs(hostPath) || strings.HasPrefix(hostPath, "${") {
-					// If the path is absolute and starts with libPath, rebase onto hostLib.
+					// if the path is absolute and starts with libPath, rebase onto hostLib
 					if hostLib != "" && strings.HasPrefix(hostPath, lib) {
 						hostPath = hostLib + hostPath[len(lib):]
 						volumes[i] = fmt.Sprintf("%s:%s", hostPath, parts[1])
@@ -407,15 +400,10 @@ func buildMergedCompose(cf *compose.ComposeFile, lib, hostLib string,
 	return merged, profilesMap, nil
 }
 
-// createAndStartExecutors performs the three-phase executor launch:
+// performs the three-phase executor launch:
 //  1. docker compose create  — allocate containers without starting them
-//  2. InjectLibraries        — copy behavior/interface .so files into each container
+//  2. InjectLibraries        — copy behavior/interface .so files into each container, sourced from all staging dirs
 //  3. docker compose start   — start the containers
-//
-// Libraries are sourced from ALL staging directories recorded in the registry, not just
-// those extracted during the current launch invocation.  This ensures that a
-// `coral launch -p executors` command picks up libraries from drivers and skillsets
-// that were launched (and extracted) in a prior invocation.
 func createAndStartExecutors(instanceName, composePath string, executorServices []string,
 	reg *registry.Registry) error {
 
@@ -466,7 +454,7 @@ func runDetached(ctx context.Context, profiles []string, instanceName, composePa
 
 	for _, profile := range profiles {
 		if profile == "executors" {
-			// Gate on drivers + skillsets being healthy before touching executors.
+			// gate on drivers + skillsets being healthy before touching executors (only if they implement health checks)
 			var depServices []string
 			for _, p := range []string{"drivers", "skillsets"} {
 				depServices = append(depServices, profilesMap[p]...)
@@ -533,13 +521,12 @@ func runForeground(profiles []string, instanceName, composePath string, kill boo
 			fmt.Println(logging.Success("Done"))
 		})
 	}
-	// cancel before doCleanup so the health monitor stops first (LIFO defer order).
+	// cancel before doCleanup so the health monitor stops first (LIFO defer order)
 	defer doCleanup()
 	defer cancel()
 
 	shutdownChan := make(chan struct{})
-	// Start the signal goroutine before runDetached so a ctrl+c during the
-	// health gate cancels the context and unblocks WaitForHealthy immediately.
+	// start the signal goroutine before runDetached so a ctrl+c during the health gate cancels the context and unblocks WaitForHealthy immediately
 	go func() {
 		<-signalChan
 		signal.Stop(signalChan)
@@ -549,19 +536,18 @@ func runForeground(profiles []string, instanceName, composePath string, kill boo
 
 	if err := runDetached(ctx, profiles, instanceName, composePath, executorDelay, healthTimeout, profilesMap, reg); err != nil {
 		if ctx.Err() != nil {
-			// ctrl+c arrived during startup; doCleanup will stop containers.
 			fmt.Printf("\n%s\n", logging.Warning(fmt.Sprintf("Interrupt received — shutting down %s...", logging.BoldMagenta(instanceName))))
 			return nil
 		}
 		return fmt.Errorf("starting profiles: %w", err)
 	}
 
-	// Start health monitor after all profiles are running.
+	// start health monitor after all profiles are running
 	monitor := health.NewMonitor(instanceName, reg)
 	healthEvents := monitor.Start(ctx)
 	go func() {
 		for range healthEvents {
-			// Events are already logged by the monitor; kernel integration in Phase 5.
+			// events are already logged by the monitor; kernel integration in Phase 5
 		}
 	}()
 
@@ -583,8 +569,6 @@ func runForeground(profiles []string, instanceName, composePath string, kill boo
 
 	return nil
 }
-
-// ---- helpers (unchanged from original) ----
 
 func hasIntersection(a, b []string) bool {
 	set := make(map[string]struct{}, len(b))

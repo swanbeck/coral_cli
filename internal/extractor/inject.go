@@ -19,15 +19,7 @@ type libEntry struct {
 	payloadID string
 }
 
-// InjectLibraries merges behavior and interface libraries from all active staging
-// directories into the executor container at /home/loading/lib (the path set by
-// LOADING_LIBRARY_PATH in the coral_runner image).
-//
-// Conflict resolution: when two payloads provide a file with the same name in the same
-// subdirectory (behaviors/ or interfaces/), the file with the newer modification
-// timestamp wins.  The losing entry is recorded as shadowed in the returned slice.
-//
-// stagingDirs maps payloadID → staging directory path.
+// merges behavior and interface libraries from all active staging directories into the executor container at /home/loading/lib (the path set by LOADING_LIBRARY_PATH in the coral_runner image); when two payloads provide a file with the same name in the same subdirectory (behaviors/ or interfaces/), the file with the newer modification timestamp wins and the losing entry is recorded as shadowed in the returned slice
 func InjectLibraries(containerID string, stagingDirs map[string]string) ([]registry.InjectedLib, error) {
 	if len(stagingDirs) == 0 {
 		return nil, nil
@@ -42,7 +34,7 @@ func InjectLibraries(containerID string, stagingDirs map[string]string) ([]regis
 	var result []registry.InjectedLib
 
 	for _, subDir := range []string{"behaviors", "interfaces"} {
-		winners := make(map[string]libEntry)   // filename → current best
+		winners := make(map[string]libEntry) // filename → current best
 		var shadowedLibs []registry.InjectedLib
 
 		for payloadID, stagingDir := range stagingDirs {
@@ -73,7 +65,7 @@ func InjectLibraries(containerID string, stagingDirs map[string]string) ([]regis
 					winners[name] = entry
 					continue
 				}
-				// Newer modification timestamp wins.
+				// newer modification timestamp wins; this cannot exist long-term but is simple and deterministic for now
 				if entry.mtime.After(existing.mtime) {
 					shadowedLibs = append(shadowedLibs, registry.InjectedLib{
 						PayloadID:  existing.payloadID,
@@ -107,7 +99,7 @@ func InjectLibraries(containerID string, stagingDirs map[string]string) ([]regis
 			continue
 		}
 
-		// Copy winning files to the merge directory.
+		// copy winning files to the merge directory
 		destSubDir := filepath.Join(tmpDir, subDir)
 		if err := os.MkdirAll(destSubDir, 0755); err != nil {
 			return nil, err
@@ -129,9 +121,7 @@ func InjectLibraries(containerID string, stagingDirs map[string]string) ([]regis
 		return result, nil
 	}
 
-	// docker cp into the executor container.  The source trailing "/." copies directory
-	// contents rather than the directory wrapper, placing behaviors/ and interfaces/
-	// directly under /home/loading/lib/ inside the container.
+	// docker cp into the executor container
 	cpCmd := exec.Command("docker", "cp",
 		tmpDir+"/.",
 		fmt.Sprintf("%s:/home/loading/lib", containerID))
@@ -164,7 +154,7 @@ func copyFile(src, dst string) error {
 	if _, err := io.Copy(out, in); err != nil {
 		return err
 	}
-	// Preserve modification timestamp so conflict resolution is stable on re-injection.
+	// preserve modification timestamp so conflict resolution is stable on re-injection
 	return os.Chtimes(dst, info.ModTime(), info.ModTime())
 }
 

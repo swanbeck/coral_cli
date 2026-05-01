@@ -60,7 +60,7 @@ func RemoveInstanceFiles(instanceName string) error {
 		return cleanErr
 	}
 
-	cleanErr := cleanupFromCompose(composeFile, libPath, instanceName, reg)
+	cleanErr := cleanupFromCompose(instanceName, reg)
 	tryRemoveDirIfEmpty(filepath.Join(libPath, "staging"))
 	if err := reg.CleanupIfEmpty(); err != nil {
 		fmt.Printf("Warning: cleaning up registry: %v\n", err)
@@ -68,9 +68,8 @@ func RemoveInstanceFiles(instanceName string) error {
 	return cleanErr
 }
 
-// cleanupFromCompose removes staging directories and registry records for all services
-// in the compose file, using the registry for fast lookups rather than re-inspecting images.
-func cleanupFromCompose(composePath, libPath, instanceName string, reg *registry.Registry) error {
+// removes staging directories and records using the registry for fast lookups rather than re-inspecting images
+func cleanupFromCompose(instanceName string, reg *registry.Registry) error {
 	// Remove injection records for all containers in this instance.
 	containerIDs, _ := health.GetContainerIDsForProject(instanceName)
 	for _, cid := range containerIDs {
@@ -102,9 +101,7 @@ func cleanupFromCompose(composePath, libPath, instanceName string, reg *registry
 	return nil
 }
 
-// legacyCleanupFromCompose is the pre-registry fallback used when the registry file
-// cannot be loaded.  It re-inspects each image and removes the staging directory if
-// found, without touching any registry.
+// pre-registry fallback used when the registry file cannot be loaded; re-inspects each image and removes the staging directory if found, without touching any registry
 func legacyCleanupFromCompose(composePath, libPath string) error {
 	rawCompose, err := compose.LoadRawYAML(composePath)
 	if err != nil {
