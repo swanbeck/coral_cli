@@ -366,6 +366,28 @@ func buildMergedCompose(cf *compose.ComposeFile, lib, hostLib string,
 			mergedSvc = baseSvc
 		}
 
+		// resolve and inject device mappings from devices.yaml
+		devicesPath := filepath.Join(stagingDir, "devices.yaml")
+		if _, err := os.Stat(devicesPath); err == nil {
+			df, err := compose.LoadDevicesFile(devicesPath)
+			if err != nil {
+				return nil, nil, fmt.Errorf("loading devices.yaml for %s: %w", name, err)
+			}
+			devPaths, err := compose.ResolveDevicePaths(df, name)
+			if err != nil {
+				return nil, nil, err
+			}
+			if len(devPaths) > 0 {
+				existing, _ := mergedSvc["devices"].([]interface{})
+				for _, p := range devPaths {
+					existing = append(existing, p)
+				}
+				mergedSvc["devices"] = existing
+				fmt.Println(logging.Info(fmt.Sprintf(
+					"Mapped %d device(s) for %s", len(devPaths), logging.BoldMagenta(name))))
+			}
+		}
+
 		// rewrite relative host volume paths to absolute - and when CORAL is running inside Docker, rebase them onto hostLib so the Docker daemon can reach them
 		if volumes, ok := mergedSvc["volumes"].([]interface{}); ok {
 			for i, v := range volumes {
