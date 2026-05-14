@@ -18,10 +18,7 @@ type ResolvedDevice struct {
 	Subsystem string // e.g. video4linux, media, usb
 }
 
-// FindByVIDPID walks /sys/bus/usb/devices/ and returns one device group per
-// physical USB device matching vendorID:productID. Each group contains all
-// associated /dev nodes. If subsystems is non-empty, only nodes whose
-// subsystem is in the list are included; otherwise all are included.
+// walks /sys/bus/usb/devices/ and returns one device group per physical USB device matching vendorID:productID; each group contains all associated /dev nodes; if subsystems is non-empty, only nodes whose subsystem is in the list are included; otherwise all are included
 func FindByVIDPID(vendorID, productID string, subsystems []string) ([][]ResolvedDevice, error) {
 	entries, err := os.ReadDir(usbDevicesRoot)
 	if err != nil {
@@ -68,8 +65,7 @@ func FindByVIDPID(vendorID, productID string, subsystems []string) ([][]Resolved
 	return results, nil
 }
 
-// collectDevNodes walks the sysfs subtree for a USB device and returns all
-// /dev nodes found in uevent files, filtered by subsystem if filter is set.
+// walks the sysfs subtree for a USB device and returns all /dev nodes found in uevent files, filtered by subsystem if filter is set
 func collectDevNodes(usbDevRoot string, subsystemFilter map[string]bool) ([]ResolvedDevice, error) {
 	var devs []ResolvedDevice
 
@@ -98,11 +94,7 @@ func collectDevNodes(usbDevRoot string, subsystemFilter map[string]bool) ([]Reso
 	return devs, err
 }
 
-// subsystemFromPath derives the Linux kernel subsystem name from the path of
-// a uevent file within a USB device's sysfs subtree. The USB device's own
-// uevent is at <root>/uevent; child device uevent files sit under directories
-// named after their subsystem class (e.g. video4linux/video49/uevent) or,
-// for media controller nodes, directly under a mediaX directory.
+// derives the Linux kernel subsystem name from the path of a uevent file within a USB device's sysfs subtree; the USB device's own uevent is at <root>/uevent; child device uevent files sit under directories named after their subsystem class (e.g. video4linux/video49/uevent) or, for media controller nodes, directly under a mediaX directory
 func subsystemFromPath(ueventPath, usbDevRoot string) string {
 	rel := strings.TrimPrefix(ueventPath, usbDevRoot+"/")
 	for _, part := range strings.Split(rel, "/") {

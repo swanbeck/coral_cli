@@ -9,10 +9,10 @@ import (
 	"syscall"
 
 	"coral_cli/internal/compose"
-	"coral_cli/internal/libs"
 	"coral_cli/internal/health"
-	"coral_cli/internal/util"
+	"coral_cli/internal/libs"
 	"coral_cli/internal/registry"
+	"coral_cli/internal/util"
 )
 
 func StopCompose(instanceName string, composePath string, kill bool, profiles []string) error {
@@ -37,6 +37,26 @@ func StopCompose(instanceName string, composePath string, kill bool, profiles []
 	downCmd.Stdout = os.Stdout
 	downCmd.Stderr = os.Stderr
 	return downCmd.Run()
+}
+
+// cleans up after a failed launch before instance metadata has been written; intended to be called from deferred functions in the launch path when instanceName is known
+func AbortInstance(instanceName, libPath, composePath string, reg *registry.Registry) {
+	stagingDirs, err := reg.RemoveExtractionsForInstance(instanceName)
+	if err != nil {
+		fmt.Printf("Warning: removing extraction records for %s: %v\n", instanceName, err)
+	}
+	for _, dir := range stagingDirs {
+		if err := os.RemoveAll(dir); err != nil {
+			fmt.Printf("Warning: removing staging dir %s: %v\n", dir, err)
+		}
+	}
+	tryRemoveDirIfEmpty(filepath.Join(libPath, "staging"))
+	if err := reg.CleanupIfEmpty(); err != nil {
+		fmt.Printf("Warning: cleaning registry: %v\n", err)
+	}
+	if composePath != "" {
+		tryRemoveFileAndDirectory(composePath)
+	}
 }
 
 func RemoveInstanceFiles(instanceName string) error {

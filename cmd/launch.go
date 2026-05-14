@@ -21,11 +21,11 @@ import (
 
 	"coral_cli/internal/cleanup"
 	"coral_cli/internal/compose"
-	"coral_cli/internal/libs"
 	"coral_cli/internal/health"
-	"coral_cli/internal/util"
+	"coral_cli/internal/libs"
 	"coral_cli/internal/logging"
 	"coral_cli/internal/registry"
+	"coral_cli/internal/util"
 )
 
 var (
@@ -225,6 +225,17 @@ func launch(composePath, envFile, handle, group string, detached, kill bool,
 		return fmt.Errorf("loading registry: %w", err)
 	}
 
+	// declared here so the deferred abort below can reference it even if launch fails before writeComposeToDisk is reached
+	outputPath := filepath.Join(libPath, "compose", instanceName+".yaml")
+
+	// guard: if launch fails before the instance is fully handed off to the run functions (which have their own cleanup), abort removes any staging dirs and registry records written so far
+	launched := false
+	defer func() {
+		if !launched {
+			cleanup.AbortInstance(instanceName, libPath, outputPath, reg)
+		}
+	}()
+
 	mergedCompose, profilesMap, err := buildMergedCompose(
 		parsedCompose, libPath, hostLibPath, profilesToStart, instanceName, reg)
 	if err != nil {
@@ -241,7 +252,6 @@ func launch(composePath, envFile, handle, group string, detached, kill bool,
 		return fmt.Errorf("merged compose file has no valid services")
 	}
 
-	outputPath := filepath.Join(libPath, "compose", instanceName+".yaml")
 	if err := writeComposeToDisk(outputPath, mergedCompose); err != nil {
 		return err
 	}
@@ -253,6 +263,9 @@ func launch(composePath, envFile, handle, group string, detached, kill bool,
 	if len(profiles) == 0 {
 		return fmt.Errorf("no valid profiles to run")
 	}
+
+	// past this point metadata is written; suppress the deferred abort and use RemoveInstanceFiles (which reads metadata) for any remaining cleanup
+	launched = true
 
 	if receivedSignal.Load() {
 		fmt.Printf("\n%s\n", logging.Warning(fmt.Sprintf("Interrupt during init — cleaning up %s...", logging.BoldMagenta(instanceName))))
@@ -277,7 +290,15 @@ func launch(composePath, envFile, handle, group string, detached, kill bool,
 			case <-dCtx.Done():
 			}
 		}()
-		return runDetached(dCtx, profiles, instanceName, outputPath, executorDelay, healthTimeout, profilesMap, reg)
+		if err := runDetached(dCtx, profiles, instanceName, outputPath, executorDelay, healthTimeout, profilesMap, reg); err != nil {
+			if dCtx.Err() == nil {
+				fmt.Println(logging.Warning(fmt.Sprintf("Launch failed — cleaning up %s...", logging.BoldMagenta(instanceName))))
+				_ = cleanup.StopCompose(instanceName, outputPath, true, profiles)
+				_ = cleanup.RemoveInstanceFiles(instanceName)
+			}
+			return err
+		}
+		return nil
 	}
 	return runForeground(profiles, instanceName, outputPath, kill, executorDelay, healthTimeout, profilesMap, reg)
 }
