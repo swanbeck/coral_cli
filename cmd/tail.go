@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"coral_cli/internal/logging"
-	"coral_cli/internal/metadata"
+	"coral_cli/internal/util"
 )
 
 var (
@@ -44,7 +44,7 @@ func init() {
 	}
 
 	tailCmd.RegisterFlagCompletionFunc("name", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		metadataList, err := metadata.LoadAllMetadata()
+		metadataList, err := util.LoadAllMetadata()
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveError
 		}
@@ -57,7 +57,7 @@ func init() {
 		return suggestions, cobra.ShellCompDirectiveNoFileComp
 	})
 	tailCmd.RegisterFlagCompletionFunc("group", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		metadataList, err := metadata.LoadAllMetadata()
+		metadataList, err := util.LoadAllMetadata()
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveError
 		}
@@ -70,7 +70,7 @@ func init() {
 		return suggestions, cobra.ShellCompDirectiveNoFileComp
 	})
 	tailCmd.RegisterFlagCompletionFunc("handle", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		metadataList, err := metadata.LoadAllMetadata()
+		metadataList, err := util.LoadAllMetadata()
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveError
 		}
@@ -94,7 +94,7 @@ var tailCmd = &cobra.Command{
 
 func tail(all bool, instances, groups, handles []string) error {
 	// load all metadata
-	metadataList, err := metadata.LoadAllMetadata()
+	metadataList, err := util.LoadAllMetadata()
 	if err != nil {
 		return fmt.Errorf("loading metadata: %w", err)
 	}
@@ -104,7 +104,7 @@ func tail(all bool, instances, groups, handles []string) error {
 	}
 
 	// list of containers to tail
-	var containers []metadata.ContainerInfo
+	var containers []util.ContainerInfo
 
 	for _, meta := range metadataList {
 		if all || slices.Contains(instances, meta.Name) || slices.Contains(groups, meta.Group) || slices.Contains(handles, meta.Handle) {
