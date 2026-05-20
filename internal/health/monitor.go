@@ -64,7 +64,6 @@ func (m *Monitor) Start(ctx context.Context) <-chan HealthEvent {
 
 func (m *Monitor) poll(events chan<- HealthEvent, flagged map[string]bool) {
 	ids, err := GetContainerIDsForProject(m.instanceName)
-	fmt.Println(logging.Info(fmt.Sprintf("Checking health for project %s", m.instanceName)))
 	if err != nil || len(ids) == 0 {
 		return
 	}
@@ -125,7 +124,11 @@ func WaitForHealthy(ctx context.Context, instanceName string, services []string,
 				allReady = false
 				break
 			}
-			if !isReady(containerStatus(id)) {
+			cs := containerStatus(id)
+			if (cs.status == "exited" || cs.status == "dead") && !isReady(cs) {
+				return fmt.Errorf("service %s exited unexpectedly (exit code %d)", svc, cs.exitCode)
+			}
+			if !isReady(cs) {
 				allReady = false
 				break
 			}

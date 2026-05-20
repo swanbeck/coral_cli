@@ -216,7 +216,8 @@ func launch(composePath, envFile, handle, group string, detached, kill bool,
 		return fmt.Errorf("checking images: %w", err)
 	}
 
-	instanceName := fmt.Sprintf("coral-%s", uuid.New())
+	uid := uuid.New()
+	instanceName := fmt.Sprintf("coral-%x", uid[:4])
 	fmt.Println(logging.Info("Launching new instance " + logging.BoldMagentaHi(instanceName)))
 
 	// load (or create) the persistent registry

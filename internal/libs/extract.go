@@ -28,7 +28,8 @@ func ExtractLibraries(image, name, lib string) (stagingDir string, imageID strin
 		return stagingDir, imageID, nil
 	}
 
-	probeName := fmt.Sprintf("coral-probe-%s", uuid.New())
+	uid := uuid.New()
+	probeName := fmt.Sprintf("coral-probe-%x", uid[:4])
 	createCmd := exec.Command("docker", "create", "--name", probeName, image)
 	createCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	out, err := createCmd.Output()
