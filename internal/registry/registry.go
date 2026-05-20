@@ -10,10 +10,12 @@ import (
 
 // tracks what was extracted from a payload image into its staging directory; InstanceIDs is a reference-counted set: every instance that has referenced (extracted or injected from) this staging directory holds a slot
 type ExtractionRecord struct {
-	ImageID     string   `json:"image_id"`
-	StagingDir  string   `json:"staging_dir"`
-	PayloadID   string   `json:"payload_id"`
-	InstanceIDs []string `json:"instance_ids"`
+	ImageID      string   `json:"image_id"`
+	StagingDir   string   `json:"staging_dir"`
+	PayloadID    string   `json:"payload_id"`
+	InstanceIDs  []string `json:"instance_ids"`
+	BtcppVersion string   `json:"btcpp_version,omitempty"`
+	RosDistro    string   `json:"ros_distro,omitempty"`
 	// Deprecated: present only in old registry files; migrated to InstanceIDs on load.
 	InstanceID string `json:"instance_id,omitempty"`
 }
@@ -83,8 +85,8 @@ func Load(libPath string) (*Registry, error) {
 	return r, nil
 }
 
-// adds instanceID to the reference set for imageID; if the record does not yet exist, it is created with stagingDir/payloadID; if it exists, stagingDir and payloadID are left unchanged (the first extractor's values are canonical)
-func (r *Registry) RecordExtraction(imageID, stagingDir, payloadID, instanceID string) error {
+// adds instanceID to the reference set for imageID; if the record does not yet exist, it is created with stagingDir/payloadID/versions; if it exists, those fields are left unchanged (the first extractor's values are canonical)
+func (r *Registry) RecordExtraction(imageID, stagingDir, payloadID, instanceID, btcppVersion, rosDistro string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	rec, exists := r.data.Extractions[imageID]
@@ -97,22 +99,23 @@ func (r *Registry) RecordExtraction(imageID, stagingDir, payloadID, instanceID s
 		return r.save()
 	}
 	r.data.Extractions[imageID] = ExtractionRecord{
-		ImageID:     imageID,
-		StagingDir:  stagingDir,
-		PayloadID:   payloadID,
-		InstanceIDs: []string{instanceID},
+		ImageID:      imageID,
+		StagingDir:   stagingDir,
+		PayloadID:    payloadID,
+		InstanceIDs:  []string{instanceID},
+		BtcppVersion: btcppVersion,
+		RosDistro:    rosDistro,
 	}
 	return r.save()
 }
 
-// returns a snapshot of all currently recorded imageID -> stagingDir mappings; this is a read-only query: executor injection consumes staging dirs but
-// does not hold a producer reference
-func (r *Registry) AllStagingDirs() map[string]string {
+// returns a snapshot of all currently recorded extraction records; read-only — injection does not hold a producer reference
+func (r *Registry) AllExtractions() map[string]ExtractionRecord {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	result := make(map[string]string, len(r.data.Extractions))
+	result := make(map[string]ExtractionRecord, len(r.data.Extractions))
 	for imageID, rec := range r.data.Extractions {
-		result[imageID] = rec.StagingDir
+		result[imageID] = rec
 	}
 	return result
 }

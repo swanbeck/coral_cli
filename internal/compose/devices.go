@@ -33,9 +33,7 @@ func LoadDevicesFile(path string) (*DevicesFile, error) {
 	return &df, nil
 }
 
-// ResolveDevicePaths resolves a DevicesFile to concrete host device paths for
-// Docker Compose's devices: list. Each returned entry is "<path>:<path>".
-// Returns an error if any declared USB device is not present on the host.
+// resolves a DevicesFile to concrete host device paths for Docker Compose's devices list; each returned entry is "<path>:<path>"
 func ResolveDevicePaths(df *DevicesFile, serviceName string) ([]string, error) {
 	var paths []string
 

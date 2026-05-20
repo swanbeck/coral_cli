@@ -38,7 +38,8 @@ var (
 	launchExecutorDelay float32
 	launchProfiles      []string
 	launchLibDir        string
-	launchHealthTimeout float32
+	launchHealthTimeout    float32
+	launchSkipVersionCheck bool
 )
 
 func init() {
@@ -54,6 +55,7 @@ func init() {
 	launchCmd.Flags().StringSliceVarP(&launchProfiles, "profile", "p", []string{}, "List of profiles to launch (drivers, skillsets, executors); if not specified, all profiles will be launched")
 	launchCmd.Flags().StringVar(&launchLibDir, "lib-dir", "", "Override CORAL_LIB path (takes precedence over $CORAL_LIB environment variable)")
 	launchCmd.Flags().Float32Var(&launchHealthTimeout, "health-timeout", 120.0, "Seconds to wait for drivers/skillsets to become healthy before starting executors")
+	launchCmd.Flags().BoolVar(&launchSkipVersionCheck, "skip-version-check", false, "Skip coral.version compatibility check between CLI and images")
 
 	launchCmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if toComplete == "" {
@@ -132,12 +134,12 @@ var launchCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return launch(launchComposePath, launchEnvFile, launchHandle, launchGroup,
 			launchDetached, launchKill, launchExecutorDelay, launchHealthTimeout,
-			launchLibDir, launchProfiles)
+			launchLibDir, launchProfiles, launchSkipVersionCheck)
 	},
 }
 
 func launch(composePath, envFile, handle, group string, detached, kill bool,
-	executorDelay, healthTimeout float32, libDirOverride string, profilesToStart []string) error {
+	executorDelay, healthTimeout float32, libDirOverride string, profilesToStart []string, skipVersionCheck bool) error {
 
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
@@ -212,11 +214,12 @@ func launch(composePath, envFile, handle, group string, detached, kill bool,
 		}
 	}
 
-	if err := checkImagesLocal(parsedCompose, profilesToStart); err != nil {
+	if err := checkImagesLocal(parsedCompose, skipVersionCheck); err != nil {
 		return fmt.Errorf("checking images: %w", err)
 	}
 
-	instanceName := fmt.Sprintf("coral-%s", uuid.New())
+	uid := uuid.New()
+	instanceName := fmt.Sprintf("coral-%x", uid[:4])
 	fmt.Println(logging.Info("Launching new instance " + logging.BoldMagentaHi(instanceName)))
 
 	// load (or create) the persistent registry
@@ -303,7 +306,12 @@ func launch(composePath, envFile, handle, group string, detached, kill bool,
 	return runForeground(profiles, instanceName, outputPath, kill, executorDelay, healthTimeout, profilesMap, reg)
 }
 
-func checkImagesLocal(cf *compose.ComposeFile, profilesToStart []string) error {
+var validProfiles = map[string]bool{"drivers": true, "skillsets": true, "executors": true}
+
+func checkImagesLocal(cf *compose.ComposeFile, skipVersionCheck bool) error {
+	selfMajor, err := parseMajorVersion(Version)
+	checkVersion := !skipVersionCheck && err == nil // skip for dev builds or when flag is set
+
 	for name, svc := range cf.Services {
 		raw, ok := svc["image"]
 		if !ok || raw == nil {
@@ -313,12 +321,33 @@ func checkImagesLocal(cf *compose.ComposeFile, profilesToStart []string) error {
 		if !ok {
 			return fmt.Errorf("expected string for 'image' in service %s", name)
 		}
-		profs := extractServiceProfiles(svc)
-		if len(profilesToStart) > 0 && !hasIntersection(profs, profilesToStart) {
-			continue
-		}
 		if _, err := libs.GetImageID(image); err != nil {
 			return fmt.Errorf("checking image %s for service %s: %w", image, name, err)
+		}
+		labels, err := libs.GetImageLabels(image)
+		if err != nil {
+			return fmt.Errorf("reading labels for service %s: %w", name, err)
+		}
+		profile := labels["coral.profile"]
+		if profile == "" {
+			return fmt.Errorf("image %s (service %s) is missing required label coral.profile", image, name)
+		}
+		if !validProfiles[profile] {
+			return fmt.Errorf("image %s (service %s) has invalid coral.profile %q: must be one of drivers, skillsets, executors", image, name, profile)
+		}
+		if checkVersion {
+			coralVer := labels["coral.version"]
+			if coralVer == "" {
+				return fmt.Errorf("image %s (service %s) is missing required label coral.version", image, name)
+			}
+			imageMajor, err := parseMajorVersion(coralVer)
+			if err != nil {
+				return fmt.Errorf("image %s (service %s) has unparseable coral.version %q: %w", image, name, coralVer, err)
+			}
+			if imageMajor != selfMajor {
+				return fmt.Errorf("image %s (service %s) coral.version %q is incompatible with CLI version %s (major %d != %d)",
+					image, name, coralVer, Version, imageMajor, selfMajor)
+			}
 		}
 	}
 	return nil
@@ -346,27 +375,32 @@ func buildMergedCompose(cf *compose.ComposeFile, lib, hostLib string,
 
 	for name, svc := range cf.Services {
 		image := svc["image"].(string)
-		profs := extractServiceProfiles(svc)
+		labels, err := libs.GetImageLabels(image)
+		if err != nil {
+			return nil, nil, fmt.Errorf("reading labels for service %s: %w", name, err)
+		}
+		profile := labels["coral.profile"] // already validated non-empty and valid in checkImagesLocal
 
-		if len(profilesToStart) > 0 && !hasIntersection(profs, profilesToStart) {
-			continue
+		if len(profilesToStart) > 0 {
+			matched := false
+			for _, p := range profilesToStart {
+				if p == profile {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
 		}
-		validProfiles := []string{"drivers", "skillsets", "executors"}
-		if !hasIntersection(profs, validProfiles) {
-			fmt.Println(logging.Warning(fmt.Sprintf(
-				"Skipping %s — no valid profiles %v", name, validProfiles)))
-			continue
-		}
-		for _, p := range profs {
-			profilesMap[p] = append(profilesMap[p], name)
-		}
+		profilesMap[profile] = append(profilesMap[profile], name)
 
 		stagingDir, imageID, err := libs.ExtractLibraries(image, name, lib)
 		if err != nil {
 			return nil, nil, fmt.Errorf("extracting %s for service %s: %w", image, name, err)
 		}
 
-		if err := reg.RecordExtraction(imageID, stagingDir, imageID, instanceName); err != nil {
+		if err := reg.RecordExtraction(imageID, stagingDir, imageID, instanceName, labels["coral.btcpp_version"], labels["coral.ros_distro"]); err != nil {
 			fmt.Println(logging.Warning(fmt.Sprintf("recording extraction for %s: %v", name, err)))
 		}
 
@@ -436,6 +470,7 @@ func buildMergedCompose(cf *compose.ComposeFile, lib, hostLib string,
 			}
 		}
 
+		mergedSvc["profiles"] = []interface{}{profile}
 		merged["services"].(map[string]interface{})[name] = mergedSvc
 	}
 
@@ -458,14 +493,41 @@ func createAndStartExecutors(instanceName, composePath string, executorServices 
 		return fmt.Errorf("creating executor containers: %w", err)
 	}
 
-	allStagingDirs := reg.AllStagingDirs()
+	allExtractions := reg.AllExtractions()
 
 	for _, svc := range executorServices {
 		containerID, err := health.GetContainerIDForService(instanceName, svc)
 		if err != nil || containerID == "" {
 			return fmt.Errorf("locating container for executor service %s: %w", svc, err)
 		}
-		injected, err := libs.InjectLibraries(containerID, allStagingDirs)
+
+		execLabels, err := libs.GetContainerLabels(containerID)
+		if err != nil {
+			return fmt.Errorf("reading labels for executor %s: %w", svc, err)
+		}
+		execBtcpp := execLabels["coral.btcpp_version"]
+		execRos := execLabels["coral.ros_distro"]
+
+		compatibleDirs := make(map[string]string)
+		for imageID, rec := range allExtractions {
+			var reasons []string
+			if rec.BtcppVersion != execBtcpp {
+				reasons = append(reasons, fmt.Sprintf("BT.CPP version mismatch %q != %q", rec.BtcppVersion, execBtcpp))
+			}
+			if rec.RosDistro != execRos {
+				reasons = append(reasons, fmt.Sprintf("ROS distro mismatch %q != %q", rec.RosDistro, execRos))
+			}
+			if len(reasons) > 0 {
+				fmt.Println(logging.Warning(fmt.Sprintf(
+					"Cowardly refusing to inject libraries from %s into executor %s: %s",
+					rec.PayloadID, svc, strings.Join(reasons, ", "),
+				)))
+				continue
+			}
+			compatibleDirs[imageID] = rec.StagingDir
+		}
+
+		injected, err := libs.InjectLibraries(containerID, compatibleDirs)
 		if err != nil {
 			return fmt.Errorf("injecting libraries into %s: %w", svc, err)
 		}
@@ -610,33 +672,6 @@ func runForeground(profiles []string, instanceName, composePath string, kill boo
 	}
 
 	return nil
-}
-
-func hasIntersection(a, b []string) bool {
-	set := make(map[string]struct{}, len(b))
-	for _, item := range b {
-		set[item] = struct{}{}
-	}
-	for _, item := range a {
-		if _, ok := set[item]; ok {
-			return true
-		}
-	}
-	return false
-}
-
-func extractServiceProfiles(service map[string]interface{}) []string {
-	var profiles []string
-	if raw, ok := service["profiles"]; ok {
-		if arr, ok := raw.([]interface{}); ok {
-			for _, p := range arr {
-				if str, ok := p.(string); ok {
-					profiles = append(profiles, str)
-				}
-			}
-		}
-	}
-	return profiles
 }
 
 func extractProfileNames(profiles map[string][]string) []string {

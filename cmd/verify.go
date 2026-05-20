@@ -69,9 +69,9 @@ func verify(imageName string, libDir string) error {
 
 	_, _, err = libs.ExtractLibraries(imageName, "verify", tmpLib)
 	if err != nil {
-		return fmt.Errorf("extraction failed — ensure LIB_PATH is set and contains behaviors/ and interfaces/: %w", err)
+		return fmt.Errorf("extraction failed — ensure CORAL_EXPORT_LIB is set and contains behaviors/ and interfaces/: %w", err)
 	}
 
-	fmt.Println(logging.Info("LIB_PATH is set and library extraction succeeded"))
+	fmt.Println(logging.Info("CORAL_EXPORT_LIB is set and library extraction succeeded"))
 	return nil
 }

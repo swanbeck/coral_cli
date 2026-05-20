@@ -14,7 +14,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// probes an image by creating a stopped container, reading LIB_PATH from its environment, copying the library tree to staging/<imageID>/ under lib, then removing the probe container. docker.yaml (if present) stays inside the staging directory alongside the behavior/interface libraries; the caller is responsible for recording the extraction in the registry
+// probes an image by creating a stopped container, reading CORAL_EXPORT_LIB from its environment, copying the library tree to staging/<imageID>/ under lib, then removing the probe container. docker.yaml (if present) stays inside the staging directory alongside the behavior/interface libraries; the caller is responsible for recording the extraction in the registry
 func ExtractLibraries(image, name, lib string) (stagingDir string, imageID string, err error) {
 	imageID, err = GetImageID(image)
 	if err != nil {
@@ -28,7 +28,8 @@ func ExtractLibraries(image, name, lib string) (stagingDir string, imageID strin
 		return stagingDir, imageID, nil
 	}
 
-	probeName := fmt.Sprintf("coral-probe-%s", uuid.New())
+	uid := uuid.New()
+	probeName := fmt.Sprintf("coral-probe-%x", uid[:4])
 	createCmd := exec.Command("docker", "create", "--name", probeName, image)
 	createCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	out, err := createCmd.Output()
@@ -43,12 +44,12 @@ func ExtractLibraries(image, name, lib string) (stagingDir string, imageID strin
 		rmCmd.Run() // best-effort
 	}()
 
-	libPath, err := readContainerEnv(containerID, "LIB_PATH")
+	libPath, err := readContainerEnv(containerID, "CORAL_EXPORT_LIB")
 	if err != nil {
-		return "", "", fmt.Errorf("reading LIB_PATH from %s: %w", image, err)
+		return "", "", fmt.Errorf("reading CORAL_EXPORT_LIB from %s: %w", image, err)
 	}
 	if libPath == "" {
-		return "", "", fmt.Errorf("image %s does not set LIB_PATH", image)
+		return "", "", fmt.Errorf("image %s does not set CORAL_EXPORT_LIB", image)
 	}
 
 	if err := os.MkdirAll(stagingDir, 0755); err != nil {
@@ -92,6 +93,33 @@ func readContainerEnv(containerID, varName string) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+// returns the labels on the named image; the image must already be local
+func GetImageLabels(image string) (map[string]string, error) {
+	return inspectLabels(image)
+}
+
+// returns the labels on a created or running container; container labels include all image labels
+func GetContainerLabels(containerID string) (map[string]string, error) {
+	return inspectLabels(containerID)
+}
+
+func inspectLabels(dockerObject string) (map[string]string, error) {
+	cmd := exec.Command("docker", "inspect", "--format", "{{json .Config.Labels}}", dockerObject)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("inspecting %s: %w", dockerObject, err)
+	}
+	var labels map[string]string
+	if err := json.Unmarshal([]byte(strings.TrimSpace(string(out))), &labels); err != nil {
+		return nil, fmt.Errorf("parsing labels for %s: %w", dockerObject, err)
+	}
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	return labels, nil
 }
 
 // returns the full image digest for the named image, pulling it if absent
