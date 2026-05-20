@@ -1,6 +1,7 @@
 # ---- configuration ----
 BINARY_NAME := coral
 INSTALL_DIR := /usr/local/bin
+VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo "dev")
 
 BASH_COMPLETION_DIR := /usr/share/bash-completion/completions
 ZSH_COMPLETION_DIR := /usr/share/zsh/site-functions
@@ -14,7 +15,7 @@ all: build
 build:
 	@echo "==> Building $(BINARY_NAME)..."
 	@mkdir -p bin
-	@go build -o bin/$(BINARY_NAME)
+	@go build -ldflags "-X 'coral_cli/cmd.Version=$(VERSION)'" -o bin/$(BINARY_NAME)
 	@echo "==> Wrote to ./bin/$(BINARY_NAME)"
 
 .PHONY: clean

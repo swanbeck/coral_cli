@@ -23,6 +23,8 @@ var rootCmd = &cobra.Command{
 		var err error
 
 		switch args[0] {
+		case "-v", "--version":
+			fmt.Printf("Coral version %s\n", Version)
 		case "images":
 			err = imagesCmd.RunE(cmd, args[1:])
 		case "ps":
@@ -64,4 +66,5 @@ func init() {
 	rootCmd.AddCommand(shutdownCmd)
 	rootCmd.AddCommand(tailCmd)
 	rootCmd.AddCommand(verifyCmd)
+	rootCmd.AddCommand(versionCmd)
 }

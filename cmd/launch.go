@@ -38,7 +38,8 @@ var (
 	launchExecutorDelay float32
 	launchProfiles      []string
 	launchLibDir        string
-	launchHealthTimeout float32
+	launchHealthTimeout    float32
+	launchSkipVersionCheck bool
 )
 
 func init() {
@@ -54,6 +55,7 @@ func init() {
 	launchCmd.Flags().StringSliceVarP(&launchProfiles, "profile", "p", []string{}, "List of profiles to launch (drivers, skillsets, executors); if not specified, all profiles will be launched")
 	launchCmd.Flags().StringVar(&launchLibDir, "lib-dir", "", "Override CORAL_LIB path (takes precedence over $CORAL_LIB environment variable)")
 	launchCmd.Flags().Float32Var(&launchHealthTimeout, "health-timeout", 120.0, "Seconds to wait for drivers/skillsets to become healthy before starting executors")
+	launchCmd.Flags().BoolVar(&launchSkipVersionCheck, "skip-version-check", false, "Skip coral.version compatibility check between CLI and images")
 
 	launchCmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if toComplete == "" {
@@ -132,12 +134,12 @@ var launchCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return launch(launchComposePath, launchEnvFile, launchHandle, launchGroup,
 			launchDetached, launchKill, launchExecutorDelay, launchHealthTimeout,
-			launchLibDir, launchProfiles)
+			launchLibDir, launchProfiles, launchSkipVersionCheck)
 	},
 }
 
 func launch(composePath, envFile, handle, group string, detached, kill bool,
-	executorDelay, healthTimeout float32, libDirOverride string, profilesToStart []string) error {
+	executorDelay, healthTimeout float32, libDirOverride string, profilesToStart []string, skipVersionCheck bool) error {
 
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
@@ -212,7 +214,7 @@ func launch(composePath, envFile, handle, group string, detached, kill bool,
 		}
 	}
 
-	if err := checkImagesLocal(parsedCompose); err != nil {
+	if err := checkImagesLocal(parsedCompose, skipVersionCheck); err != nil {
 		return fmt.Errorf("checking images: %w", err)
 	}
 
@@ -306,7 +308,10 @@ func launch(composePath, envFile, handle, group string, detached, kill bool,
 
 var validProfiles = map[string]bool{"drivers": true, "skillsets": true, "executors": true}
 
-func checkImagesLocal(cf *compose.ComposeFile) error {
+func checkImagesLocal(cf *compose.ComposeFile, skipVersionCheck bool) error {
+	selfMajor, err := parseMajorVersion(Version)
+	checkVersion := !skipVersionCheck && err == nil // skip for dev builds or when flag is set
+
 	for name, svc := range cf.Services {
 		raw, ok := svc["image"]
 		if !ok || raw == nil {
@@ -329,6 +334,20 @@ func checkImagesLocal(cf *compose.ComposeFile) error {
 		}
 		if !validProfiles[profile] {
 			return fmt.Errorf("image %s (service %s) has invalid coral.profile %q: must be one of drivers, skillsets, executors", image, name, profile)
+		}
+		if checkVersion {
+			coralVer := labels["coral.version"]
+			if coralVer == "" {
+				return fmt.Errorf("image %s (service %s) is missing required label coral.version", image, name)
+			}
+			imageMajor, err := parseMajorVersion(coralVer)
+			if err != nil {
+				return fmt.Errorf("image %s (service %s) has unparseable coral.version %q: %w", image, name, coralVer, err)
+			}
+			if imageMajor != selfMajor {
+				return fmt.Errorf("image %s (service %s) coral.version %q is incompatible with CLI version %s (major %d != %d)",
+					image, name, coralVer, Version, imageMajor, selfMajor)
+			}
 		}
 	}
 	return nil
