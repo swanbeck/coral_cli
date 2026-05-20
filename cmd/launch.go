@@ -212,7 +212,7 @@ func launch(composePath, envFile, handle, group string, detached, kill bool,
 		}
 	}
 
-	if err := checkImagesLocal(parsedCompose, profilesToStart); err != nil {
+	if err := checkImagesLocal(parsedCompose); err != nil {
 		return fmt.Errorf("checking images: %w", err)
 	}
 
@@ -303,7 +303,9 @@ func launch(composePath, envFile, handle, group string, detached, kill bool,
 	return runForeground(profiles, instanceName, outputPath, kill, executorDelay, healthTimeout, profilesMap, reg)
 }
 
-func checkImagesLocal(cf *compose.ComposeFile, profilesToStart []string) error {
+var validProfiles = map[string]bool{"drivers": true, "skillsets": true, "executors": true}
+
+func checkImagesLocal(cf *compose.ComposeFile) error {
 	for name, svc := range cf.Services {
 		raw, ok := svc["image"]
 		if !ok || raw == nil {
@@ -313,12 +315,19 @@ func checkImagesLocal(cf *compose.ComposeFile, profilesToStart []string) error {
 		if !ok {
 			return fmt.Errorf("expected string for 'image' in service %s", name)
 		}
-		profs := extractServiceProfiles(svc)
-		if len(profilesToStart) > 0 && !hasIntersection(profs, profilesToStart) {
-			continue
-		}
 		if _, err := libs.GetImageID(image); err != nil {
 			return fmt.Errorf("checking image %s for service %s: %w", image, name, err)
+		}
+		labels, err := libs.GetImageLabels(image)
+		if err != nil {
+			return fmt.Errorf("reading labels for service %s: %w", name, err)
+		}
+		profile := labels["coral.profile"]
+		if profile == "" {
+			return fmt.Errorf("image %s (service %s) is missing required label coral.profile", image, name)
+		}
+		if !validProfiles[profile] {
+			return fmt.Errorf("image %s (service %s) has invalid coral.profile %q: must be one of drivers, skillsets, executors", image, name, profile)
 		}
 	}
 	return nil
@@ -346,20 +355,25 @@ func buildMergedCompose(cf *compose.ComposeFile, lib, hostLib string,
 
 	for name, svc := range cf.Services {
 		image := svc["image"].(string)
-		profs := extractServiceProfiles(svc)
+		labels, err := libs.GetImageLabels(image)
+		if err != nil {
+			return nil, nil, fmt.Errorf("reading labels for service %s: %w", name, err)
+		}
+		profile := labels["coral.profile"] // already validated non-empty and valid in checkImagesLocal
 
-		if len(profilesToStart) > 0 && !hasIntersection(profs, profilesToStart) {
-			continue
+		if len(profilesToStart) > 0 {
+			matched := false
+			for _, p := range profilesToStart {
+				if p == profile {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
 		}
-		validProfiles := []string{"drivers", "skillsets", "executors"}
-		if !hasIntersection(profs, validProfiles) {
-			fmt.Println(logging.Warning(fmt.Sprintf(
-				"Skipping %s — no valid profiles %v", name, validProfiles)))
-			continue
-		}
-		for _, p := range profs {
-			profilesMap[p] = append(profilesMap[p], name)
-		}
+		profilesMap[profile] = append(profilesMap[profile], name)
 
 		stagingDir, imageID, err := libs.ExtractLibraries(image, name, lib)
 		if err != nil {
@@ -436,6 +450,7 @@ func buildMergedCompose(cf *compose.ComposeFile, lib, hostLib string,
 			}
 		}
 
+		mergedSvc["profiles"] = []interface{}{profile}
 		merged["services"].(map[string]interface{})[name] = mergedSvc
 	}
 
@@ -612,32 +627,6 @@ func runForeground(profiles []string, instanceName, composePath string, kill boo
 	return nil
 }
 
-func hasIntersection(a, b []string) bool {
-	set := make(map[string]struct{}, len(b))
-	for _, item := range b {
-		set[item] = struct{}{}
-	}
-	for _, item := range a {
-		if _, ok := set[item]; ok {
-			return true
-		}
-	}
-	return false
-}
-
-func extractServiceProfiles(service map[string]interface{}) []string {
-	var profiles []string
-	if raw, ok := service["profiles"]; ok {
-		if arr, ok := raw.([]interface{}); ok {
-			for _, p := range arr {
-				if str, ok := p.(string); ok {
-					profiles = append(profiles, str)
-				}
-			}
-		}
-	}
-	return profiles
-}
 
 func extractProfileNames(profiles map[string][]string) []string {
 	var names []string

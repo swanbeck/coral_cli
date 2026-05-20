@@ -19,7 +19,7 @@ type libEntry struct {
 	payloadID string
 }
 
-// merges behavior and interface libraries from all active staging directories into the executor container at /home/loading/lib (the path set by LOADING_LIBRARY_PATH in the coral_runner image); when two payloads provide a file with the same name in the same subdirectory (behaviors/ or interfaces/), the file with the newer modification timestamp wins and the losing entry is recorded as shadowed in the returned slice
+// merges behavior and interface libraries from all active staging directories into the executor container at the path given by CORAL_IMPORT_LIB in the container's environment; when two payloads provide a file with the same name in the same subdirectory (behaviors/ or interfaces/), the file with the newer modification timestamp wins and the losing entry is recorded as shadowed in the returned slice
 func InjectLibraries(containerID string, stagingDirs map[string]string) ([]registry.InjectedLib, error) {
 	if len(stagingDirs) == 0 {
 		return nil, nil
@@ -121,10 +121,18 @@ func InjectLibraries(containerID string, stagingDirs map[string]string) ([]regis
 		return result, nil
 	}
 
+	importLib, err := readContainerEnv(containerID, "CORAL_IMPORT_LIB")
+	if err != nil {
+		return nil, fmt.Errorf("reading CORAL_IMPORT_LIB from %s: %w", shortContainerID(containerID), err)
+	}
+	if importLib == "" {
+		return nil, fmt.Errorf("executor container %s does not set CORAL_IMPORT_LIB", shortContainerID(containerID))
+	}
+
 	// docker cp into the executor container
 	cpCmd := exec.Command("docker", "cp",
 		tmpDir+"/.",
-		fmt.Sprintf("%s:/home/loading/lib", containerID))
+		fmt.Sprintf("%s:%s", containerID, importLib))
 	cpCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if out, err := cpCmd.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("injecting libraries into %s: %w\n%s", shortContainerID(containerID), err, out)

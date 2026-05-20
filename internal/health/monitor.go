@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -17,8 +18,7 @@ type EventType int
 const (
 	EventContainerUnhealthy EventType = iota
 	EventContainerExited
-	// fires when a payload that contributed libraries to an executor is no longer running its skillset/driver backend; the executor itself is unaffected
-	// (libraries are already inside the container), but the behaviors may fail at runtime
+	// fires when a payload that contributed libraries to an executor is no longer running its skillset/driver backend; the executor itself is unaffected(libraries are already inside the container), but the behaviors may fail at runtime
 	EventLibraryDegraded
 )
 
@@ -64,6 +64,7 @@ func (m *Monitor) Start(ctx context.Context) <-chan HealthEvent {
 
 func (m *Monitor) poll(events chan<- HealthEvent, flagged map[string]bool) {
 	ids, err := GetContainerIDsForProject(m.instanceName)
+	fmt.Println(logging.Info(fmt.Sprintf("Checking health for project %s", m.instanceName)))
 	if err != nil || len(ids) == 0 {
 		return
 	}
@@ -71,24 +72,26 @@ func (m *Monitor) poll(events chan<- HealthEvent, flagged map[string]bool) {
 		if flagged[id] {
 			continue
 		}
-		status, svcName := containerStatus(id)
-		switch status {
+		cs := containerStatus(id)
+		switch cs.status {
 		case "unhealthy":
 			flagged[id] = true
-			events <- HealthEvent{Type: EventContainerUnhealthy, ContainerID: id, ServiceName: svcName, Detail: "health check failing"}
-			fmt.Println(logging.Warning(fmt.Sprintf("Container %s (%s) is unhealthy", shortID(id), svcName)))
+			events <- HealthEvent{Type: EventContainerUnhealthy, ContainerID: id, ServiceName: cs.serviceName, Detail: "health check failing"}
+			fmt.Println(logging.Warning(fmt.Sprintf("Container %s (%s) is unhealthy", shortID(id), cs.serviceName)))
 		case "exited", "dead":
 			flagged[id] = true
-			events <- HealthEvent{Type: EventContainerExited, ContainerID: id, ServiceName: svcName, Detail: "container exited"}
-			fmt.Println(logging.Warning(fmt.Sprintf("Container %s (%s) has exited unexpectedly", shortID(id), svcName)))
-			// Check whether any executor injections depended on this container's payload.
-			m.checkLibraryDegradation(id, svcName, events)
+			if cs.transient && cs.exitCode == 0 {
+				continue
+			}
+			events <- HealthEvent{Type: EventContainerExited, ContainerID: id, ServiceName: cs.serviceName, Detail: "container exited"}
+			fmt.Println(logging.Warning(fmt.Sprintf("Container %s (%s) has exited unexpectedly", shortID(id), cs.serviceName)))
+			// check whether any executor injections depended on this container's payload
+			m.checkLibraryDegradation(id, cs.serviceName, events)
 		}
 	}
 }
 
 func (m *Monitor) checkLibraryDegradation(deadContainerID, svcName string, events chan<- HealthEvent) {
-	// Use the service name as a proxy for payload ID (Phase 1; Phase 5 will use crex payload IDs).
 	affected := m.reg.GetExecutorsForPayload(svcName)
 	for _, rec := range affected {
 		if rec.ContainerID == deadContainerID {
@@ -122,8 +125,7 @@ func WaitForHealthy(ctx context.Context, instanceName string, services []string,
 				allReady = false
 				break
 			}
-			status, _ := containerStatus(id)
-			if !isReady(status) {
+			if !isReady(containerStatus(id)) {
 				allReady = false
 				break
 			}
@@ -140,22 +142,37 @@ func WaitForHealthy(ctx context.Context, instanceName string, services []string,
 	return fmt.Errorf("timed out waiting for services to become healthy: %v", services)
 }
 
-func isReady(status string) bool {
-	return status == "healthy" || status == "running_no_healthcheck"
+type containerState struct {
+	status      string
+	serviceName string
+	exitCode    int
+	transient   bool
 }
 
-// returns a normalised status and the compose service name
-func containerStatus(containerID string) (status, serviceName string) {
+func isReady(cs containerState) bool {
+	switch cs.status {
+	case "healthy", "running_no_healthcheck":
+		return true
+	case "exited", "dead":
+		return cs.transient && cs.exitCode == 0
+	}
+	return false
+}
+
+// returns normalised state for a container, including exit code and whether it bears the coral.transient label
+func containerStatus(containerID string) containerState {
 	cmd := exec.Command("docker", "inspect",
-		"--format", `{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} {{.State.Status}} {{index .Config.Labels "com.docker.compose.service"}}`,
+		"--format", `{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} {{.State.Status}} {{index .Config.Labels "com.docker.compose.service"}} {{.State.ExitCode}} {{index .Config.Labels "coral.transient"}}`,
 		containerID)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	out, err := cmd.Output()
 	if err != nil {
-		return "unknown", ""
+		return containerState{status: "unknown"}
 	}
 	parts := strings.Fields(strings.TrimSpace(string(out)))
 	var health, state, svc string
+	var exitCode int
+	var transient bool
 	if len(parts) > 0 {
 		health = parts[0]
 	}
@@ -165,13 +182,25 @@ func containerStatus(containerID string) (status, serviceName string) {
 	if len(parts) > 2 {
 		svc = parts[2]
 	}
+	if len(parts) > 3 {
+		if n, err := strconv.Atoi(parts[3]); err == nil {
+			exitCode = n
+		}
+	}
+	if len(parts) > 4 {
+		transient = parts[4] == "true"
+	}
+	var status string
 	if health == "" || health == "none" {
 		if state == "running" {
-			return "running_no_healthcheck", svc
+			status = "running_no_healthcheck"
+		} else {
+			status = state
 		}
-		return state, svc
+	} else {
+		status = health
 	}
-	return health, svc
+	return containerState{status: status, serviceName: svc, exitCode: exitCode, transient: transient}
 }
 
 func GetContainerIDForService(instanceName, serviceName string) (string, error) {
