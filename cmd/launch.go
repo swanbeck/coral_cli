@@ -381,7 +381,7 @@ func buildMergedCompose(cf *compose.ComposeFile, lib, hostLib string,
 			return nil, nil, fmt.Errorf("extracting %s for service %s: %w", image, name, err)
 		}
 
-		if err := reg.RecordExtraction(imageID, stagingDir, imageID, instanceName); err != nil {
+		if err := reg.RecordExtraction(imageID, stagingDir, imageID, instanceName, labels["coral.btcpp_version"], labels["coral.ros_distro"]); err != nil {
 			fmt.Println(logging.Warning(fmt.Sprintf("recording extraction for %s: %v", name, err)))
 		}
 
@@ -474,14 +474,41 @@ func createAndStartExecutors(instanceName, composePath string, executorServices 
 		return fmt.Errorf("creating executor containers: %w", err)
 	}
 
-	allStagingDirs := reg.AllStagingDirs()
+	allExtractions := reg.AllExtractions()
 
 	for _, svc := range executorServices {
 		containerID, err := health.GetContainerIDForService(instanceName, svc)
 		if err != nil || containerID == "" {
 			return fmt.Errorf("locating container for executor service %s: %w", svc, err)
 		}
-		injected, err := libs.InjectLibraries(containerID, allStagingDirs)
+
+		execLabels, err := libs.GetContainerLabels(containerID)
+		if err != nil {
+			return fmt.Errorf("reading labels for executor %s: %w", svc, err)
+		}
+		execBtcpp := execLabels["coral.btcpp_version"]
+		execRos := execLabels["coral.ros_distro"]
+
+		compatibleDirs := make(map[string]string)
+		for imageID, rec := range allExtractions {
+			var reasons []string
+			if rec.BtcppVersion != execBtcpp {
+				reasons = append(reasons, fmt.Sprintf("BT.CPP version mismatch %q != %q", rec.BtcppVersion, execBtcpp))
+			}
+			if rec.RosDistro != execRos {
+				reasons = append(reasons, fmt.Sprintf("ROS distro mismatch %q != %q", rec.RosDistro, execRos))
+			}
+			if len(reasons) > 0 {
+				fmt.Println(logging.Warning(fmt.Sprintf(
+					"Cowardly refusing to inject libraries from %s into executor %s: %s",
+					rec.PayloadID, svc, strings.Join(reasons, ", "),
+				)))
+				continue
+			}
+			compatibleDirs[imageID] = rec.StagingDir
+		}
+
+		injected, err := libs.InjectLibraries(containerID, compatibleDirs)
 		if err != nil {
 			return fmt.Errorf("injecting libraries into %s: %w", svc, err)
 		}
@@ -627,7 +654,6 @@ func runForeground(profiles []string, instanceName, composePath string, kill boo
 
 	return nil
 }
-
 
 func extractProfileNames(profiles map[string][]string) []string {
 	var names []string

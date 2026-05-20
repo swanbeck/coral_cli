@@ -97,15 +97,24 @@ func readContainerEnv(containerID, varName string) (string, error) {
 
 // returns the labels on the named image; the image must already be local
 func GetImageLabels(image string) (map[string]string, error) {
-	cmd := exec.Command("docker", "inspect", "--format", "{{json .Config.Labels}}", image)
+	return inspectLabels(image)
+}
+
+// returns the labels on a created or running container; container labels include all image labels
+func GetContainerLabels(containerID string) (map[string]string, error) {
+	return inspectLabels(containerID)
+}
+
+func inspectLabels(dockerObject string) (map[string]string, error) {
+	cmd := exec.Command("docker", "inspect", "--format", "{{json .Config.Labels}}", dockerObject)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("inspecting image %s: %w", image, err)
+		return nil, fmt.Errorf("inspecting %s: %w", dockerObject, err)
 	}
 	var labels map[string]string
 	if err := json.Unmarshal([]byte(strings.TrimSpace(string(out))), &labels); err != nil {
-		return nil, fmt.Errorf("parsing labels for image %s: %w", image, err)
+		return nil, fmt.Errorf("parsing labels for %s: %w", dockerObject, err)
 	}
 	if labels == nil {
 		labels = map[string]string{}
