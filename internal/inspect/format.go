@@ -8,6 +8,20 @@ import (
 	"strings"
 )
 
+// ImageMetadata holds image-level information recovered from docker inspect.
+// OCI holds org.opencontainers.image.* values with the prefix stripped.
+// Labels holds coral.* labels verbatim.
+type ImageMetadata struct {
+	OCI    map[string]string `json:"oci,omitempty"`
+	Labels map[string]string `json:"labels,omitempty"`
+}
+
+// ociPromoted are rendered as structured prose rather than a generic table.
+var ociPromoted = map[string]bool{
+	"title": true, "description": true, "version": true, "authors": true,
+	"url": true, "source": true, "documentation": true, "licenses": true,
+}
+
 // ParseBehaviors parses the flat JSON object from coral-inspect into a map of
 // behavior name -> raw JSON, preserving fields the formatter doesn't recognize.
 func ParseBehaviors(raw []byte) (map[string]json.RawMessage, error) {
@@ -18,28 +32,94 @@ func ParseBehaviors(raw []byte) (map[string]json.RawMessage, error) {
 	return m, nil
 }
 
-// FormatJSON wraps behaviors with the source image name and pretty-prints.
-// All fields from the original JSON are preserved.
-func FormatJSON(image string, behaviors map[string]json.RawMessage) ([]byte, error) {
+// FormatJSON wraps everything into a single object and pretty-prints.
+// All behavior fields from the original JSON are preserved.
+func FormatJSON(image string, meta ImageMetadata, behaviors map[string]json.RawMessage) ([]byte, error) {
 	wrapper := struct {
 		Image     string                     `json:"image"`
+		OCI       map[string]string          `json:"oci,omitempty"`
+		Labels    map[string]string          `json:"labels,omitempty"`
 		Behaviors map[string]json.RawMessage `json:"behaviors"`
-	}{image, behaviors}
+	}{image, meta.OCI, meta.Labels, behaviors}
 	return json.MarshalIndent(wrapper, "", "  ")
 }
 
-// FormatMarkdown renders behaviors as Markdown. Known fields (description, inputs,
-// outputs) receive dedicated formatting; any unrecognized fields are appended as
-// key: value pairs so the output remains correct after schema extensions.
-func FormatMarkdown(image string, behaviors map[string]json.RawMessage) string {
+// FormatMarkdown renders the full image digest as Markdown.
+func FormatMarkdown(image string, meta ImageMetadata, behaviors map[string]json.RawMessage) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "# %s\n\n", image)
+
+	// Heading: prefer OCI title, fall back to image name.
+	title := meta.OCI["title"]
+	if title != "" {
+		fmt.Fprintf(&sb, "# %s\n", title)
+		fmt.Fprintf(&sb, "`%s`\n\n", image)
+	} else {
+		fmt.Fprintf(&sb, "# %s\n\n", image)
+	}
+
+	// Description as a paragraph.
+	if desc := meta.OCI["description"]; desc != "" {
+		fmt.Fprintf(&sb, "%s\n\n", desc)
+	}
+
+	// Version / authors / licenses on one line.
+	var inlineFields []string
+	for _, key := range []string{"version", "authors", "licenses"} {
+		if v := meta.OCI[key]; v != "" {
+			inlineFields = append(inlineFields, fmt.Sprintf("**%s**: %s", key, v))
+		}
+	}
+	if len(inlineFields) > 0 {
+		sb.WriteString(strings.Join(inlineFields, " · "))
+		sb.WriteString("\n\n")
+	}
+
+	// URL / source / documentation as links.
+	for _, key := range []string{"url", "source", "documentation"} {
+		if v := meta.OCI[key]; v != "" {
+			fmt.Fprintf(&sb, "**%s**: <%s>  \n", key, v)
+		}
+	}
+	if v := meta.OCI["url"]; v != "" || meta.OCI["source"] != "" || meta.OCI["documentation"] != "" {
+		_ = v
+		sb.WriteString("\n")
+	}
+
+	// Any remaining OCI fields not handled above.
+	var ociExtras []string
+	for k := range meta.OCI {
+		if !ociPromoted[k] {
+			ociExtras = append(ociExtras, k)
+		}
+	}
+	sort.Strings(ociExtras)
+	if len(ociExtras) > 0 {
+		sb.WriteString("| OCI Field | Value |\n")
+		sb.WriteString("|-----------|-------|\n")
+		for _, k := range ociExtras {
+			fmt.Fprintf(&sb, "| `%s` | `%s` |\n", k, meta.OCI[k])
+		}
+		sb.WriteString("\n")
+	}
+
+	// Coral labels table.
+	if len(meta.Labels) > 0 {
+		sb.WriteString("| Label | Value |\n")
+		sb.WriteString("|-------|-------|\n")
+		for _, k := range sortedStringKeys(meta.Labels) {
+			fmt.Fprintf(&sb, "| `%s` | `%s` |\n", k, meta.Labels[k])
+		}
+		sb.WriteString("\n")
+	}
 
 	if len(behaviors) == 0 {
 		sb.WriteString("No behaviors exported.\n")
 		return sb.String()
 	}
 
+	sb.WriteString("---\n\n")
+
+	// Behaviors.
 	knownBehaviorFields := map[string]bool{"description": true, "inputs": true, "outputs": true}
 
 	for _, name := range sortedRawKeys(behaviors) {
@@ -137,6 +217,15 @@ func stringField(fields map[string]json.RawMessage, key string) string {
 }
 
 func sortedRawKeys(m map[string]json.RawMessage) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func sortedStringKeys(m map[string]string) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
