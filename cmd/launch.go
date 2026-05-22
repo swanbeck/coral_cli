@@ -29,15 +29,15 @@ import (
 )
 
 var (
-	launchComposePath   string
-	launchEnvFile       string
-	launchHandle        string
-	launchGroup         string
-	launchDetached      bool
-	launchKill          bool
-	launchExecutorDelay float32
-	launchProfiles      []string
-	launchLibDir        string
+	launchComposePath      string
+	launchEnvFile          string
+	launchHandle           string
+	launchGroup            string
+	launchDetached         bool
+	launchKill             bool
+	launchExecutorDelay    float32
+	launchProfiles         []string
+	launchLibDir           string
 	launchHealthTimeout    float32
 	launchSkipVersionCheck bool
 )
