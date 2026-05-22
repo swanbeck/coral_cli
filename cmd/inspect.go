@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -73,6 +75,15 @@ func inspectImage(image, format, outputFile string) error {
 		return fmt.Errorf("reading image labels for %s: %w", image, err)
 	}
 
+	coralVersion, ok := allLabels["coral.version"]
+	if !ok || coralVersion == "" {
+		return fmt.Errorf("image %s does not set coral.version", image)
+	}
+	if !coralVersionAtLeast(coralVersion, 2, 1, 1) {
+		fmt.Println(logging.Warning(fmt.Sprintf(
+			"image coral.version %s predates v2.1.1; some inspection features may be unavailable", coralVersion)))
+	}
+
 	meta := inspect.ImageMetadata{
 		OCI:    make(map[string]string),
 		Labels: make(map[string]string),
@@ -87,22 +98,7 @@ func inspectImage(image, format, outputFile string) error {
 		}
 	}
 
-	runCmd := exec.Command("docker", "run", "--rm", "--entrypoint", "/ros_entrypoint.sh", image,
-		"bash", "-c", "LD_LIBRARY_PATH=${CORAL_EXPORT_LIB}/interfaces:${LD_LIBRARY_PATH} coral-inspect")
-	runCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	runCmd.Stderr = os.Stderr
-
-	var stdout bytes.Buffer
-	runCmd.Stdout = &stdout
-
-	if err := runCmd.Run(); err != nil {
-		return fmt.Errorf("running coral-inspect on %s: %w", image, err)
-	}
-
-	behaviors, err := inspect.ParseBehaviors(stdout.Bytes())
-	if err != nil {
-		return fmt.Errorf("parsing output from %s: %w", image, err)
-	}
+	behaviors := extractBehaviors(image)
 
 	var out []byte
 	switch format {
@@ -126,4 +122,52 @@ func inspectImage(image, format, outputFile string) error {
 
 	_, err = os.Stdout.Write(out)
 	return err
+}
+
+// extractBehaviors runs coral-inspect inside the image and returns the parsed behavior map
+func extractBehaviors(image string) map[string]json.RawMessage {
+	runCmd := exec.Command("docker", "run", "--rm", "--entrypoint", "/ros_entrypoint.sh", image,
+		"bash", "-c", "LD_LIBRARY_PATH=${CORAL_EXPORT_LIB}/interfaces:${LD_LIBRARY_PATH} coral-inspect")
+	runCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	runCmd.Stderr = os.Stderr
+
+	var stdout bytes.Buffer
+	runCmd.Stdout = &stdout
+
+	if err := runCmd.Run(); err != nil {
+		fmt.Println(logging.Warning(fmt.Sprintf("behavior extraction unavailable for this image: %v", err)))
+		return map[string]json.RawMessage{}
+	}
+
+	behaviors, err := inspect.ParseBehaviors(stdout.Bytes())
+	if err != nil {
+		fmt.Println(logging.Warning(fmt.Sprintf("could not parse behavior output: %v", err)))
+		return map[string]json.RawMessage{}
+	}
+
+	return behaviors
+}
+
+// coralVersionAtLeast reports whether v (e.g. "v2.1.1" or "2.1.1") is >= major.minor.patch.
+func coralVersionAtLeast(v string, major, minor, patch int) bool {
+	v = strings.TrimPrefix(v, "v")
+	parts := strings.SplitN(v, ".", 3)
+	if len(parts) < 3 {
+		return false
+	}
+	nums := make([]int, 3)
+	for i, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil {
+			return false
+		}
+		nums[i] = n
+	}
+	if nums[0] != major {
+		return nums[0] > major
+	}
+	if nums[1] != minor {
+		return nums[1] > minor
+	}
+	return nums[2] >= patch
 }

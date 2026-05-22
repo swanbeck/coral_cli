@@ -8,22 +8,16 @@ import (
 	"strings"
 )
 
-// ImageMetadata holds image-level information recovered from docker inspect.
-// OCI holds org.opencontainers.image.* values with the prefix stripped.
-// Labels holds coral.* labels verbatim.
 type ImageMetadata struct {
 	OCI    map[string]string `json:"oci,omitempty"`
 	Labels map[string]string `json:"labels,omitempty"`
 }
 
-// ociPromoted are rendered as structured prose rather than a generic table.
 var ociPromoted = map[string]bool{
 	"title": true, "description": true, "version": true, "authors": true,
 	"url": true, "source": true, "documentation": true, "licenses": true,
 }
 
-// ParseBehaviors parses the flat JSON object from coral-inspect into a map of
-// behavior name -> raw JSON, preserving fields the formatter doesn't recognize.
 func ParseBehaviors(raw []byte) (map[string]json.RawMessage, error) {
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &m); err != nil {
@@ -32,8 +26,6 @@ func ParseBehaviors(raw []byte) (map[string]json.RawMessage, error) {
 	return m, nil
 }
 
-// FormatJSON wraps everything into a single object and pretty-prints.
-// All behavior fields from the original JSON are preserved.
 func FormatJSON(image string, meta ImageMetadata, behaviors map[string]json.RawMessage) ([]byte, error) {
 	wrapper := struct {
 		Image     string                     `json:"image"`
@@ -44,11 +36,10 @@ func FormatJSON(image string, meta ImageMetadata, behaviors map[string]json.RawM
 	return json.MarshalIndent(wrapper, "", "  ")
 }
 
-// FormatMarkdown renders the full image digest as Markdown.
 func FormatMarkdown(image string, meta ImageMetadata, behaviors map[string]json.RawMessage) string {
 	var sb strings.Builder
 
-	// Heading: prefer OCI title, fall back to image name.
+	// heading: prefer OCI title, fall back to image name
 	title := meta.OCI["title"]
 	if title != "" {
 		fmt.Fprintf(&sb, "# %s\n", title)
@@ -57,12 +48,12 @@ func FormatMarkdown(image string, meta ImageMetadata, behaviors map[string]json.
 		fmt.Fprintf(&sb, "# %s\n\n", image)
 	}
 
-	// Description as a paragraph.
+	// description
 	if desc := meta.OCI["description"]; desc != "" {
 		fmt.Fprintf(&sb, "%s\n\n", desc)
 	}
 
-	// Version / authors / licenses on one line.
+	// version / authors / licenses on one line
 	var inlineFields []string
 	for _, key := range []string{"version", "authors", "licenses"} {
 		if v := meta.OCI[key]; v != "" {
@@ -74,7 +65,7 @@ func FormatMarkdown(image string, meta ImageMetadata, behaviors map[string]json.
 		sb.WriteString("\n\n")
 	}
 
-	// URL / source / documentation as links.
+	// URL / source / documentation as links
 	for _, key := range []string{"url", "source", "documentation"} {
 		if v := meta.OCI[key]; v != "" {
 			fmt.Fprintf(&sb, "**%s**: <%s>  \n", key, v)
@@ -85,7 +76,7 @@ func FormatMarkdown(image string, meta ImageMetadata, behaviors map[string]json.
 		sb.WriteString("\n")
 	}
 
-	// Any remaining OCI fields not handled above.
+	// any remaining OCI fields not handled above
 	var ociExtras []string
 	for k := range meta.OCI {
 		if !ociPromoted[k] {
@@ -102,7 +93,7 @@ func FormatMarkdown(image string, meta ImageMetadata, behaviors map[string]json.
 		sb.WriteString("\n")
 	}
 
-	// Coral labels table.
+	// coral labels
 	if len(meta.Labels) > 0 {
 		sb.WriteString("| Label | Value |\n")
 		sb.WriteString("|-------|-------|\n")
@@ -119,7 +110,7 @@ func FormatMarkdown(image string, meta ImageMetadata, behaviors map[string]json.
 
 	sb.WriteString("---\n\n")
 
-	// Behaviors.
+	// behaviors
 	knownBehaviorFields := map[string]bool{"description": true, "inputs": true, "outputs": true}
 
 	for _, name := range sortedRawKeys(behaviors) {
