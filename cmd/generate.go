@@ -178,18 +178,7 @@ func genComposeYAML() string {
 // ---------------------------------------------------------------------------
 
 func genDockerfile() string {
-	return `# This is a two-stage Dockerfile:
-#
-#  base  — builds and installs the ROS2 packages, sets up the runtime entrypoint.
-#          This is what runs on the robot (the "payload" container).
-#
-#  coral — extends base by compiling the packages again as shared libraries and
-#          copying the resulting .so files into /coral_lib. The Coral CLI copies
-#          these out at launch time so that executor containers can load them.
-#          It also sets CORAL_EXPORT_LIB and the coral.profile label so that
-#          'coral verify' can validate the image.
-
-ARG BASE_VERSION=unknown
+	return `#ARG BASE_VERSION=unknown
 FROM swanbeck/coral-btcpp:${BASE_VERSION} AS base
 
 ARG SELF_VERSION=unknown
@@ -374,7 +363,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
-# TODO: Add additional .msg or .srv files here as your interface grows.
+# TODO: Add additional .msg or .srv files here interfaces are added.
 set(srv_files
   "srv/Ping.srv"
 )
@@ -636,7 +625,7 @@ set(BEHAVIOR_DEPS
   rclcpp
   behaviortree_cpp
   {{NAME}}_interfaces
-  # TODO: Add additional ament dependencies here.
+  # IMPORTANT: Only dependencies available within the downstream executor can be used here. The behavior plugin is loaded dynamically at runtime and must not have any unavailable dependencies. 
 )
 
 set(LIBRARY_TYPE STATIC)
