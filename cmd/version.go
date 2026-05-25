@@ -19,7 +19,7 @@ var versionCmd = &cobra.Command{
 	},
 }
 
-// parseMajorVersion extracts the leading integer from a version string of the form [v]MAJOR[.MINOR[.PATCH[...]]].
+// extracts the leading integer from a version string of the form [v]MAJOR[.MINOR[.PATCH[...]]].
 func parseMajorVersion(v string) (int, error) {
 	v = strings.TrimPrefix(v, "v")
 	if i := strings.IndexByte(v, '.'); i != -1 {
