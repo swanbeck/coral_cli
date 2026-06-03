@@ -178,7 +178,7 @@ func genComposeYAML() string {
 // ---------------------------------------------------------------------------
 
 func genDockerfile() string {
-	return `#ARG BASE_VERSION=unknown
+	return `ARG BASE_VERSION=unknown
 FROM swanbeck/coral-btcpp:${BASE_VERSION} AS base
 
 ARG SELF_VERSION=unknown
