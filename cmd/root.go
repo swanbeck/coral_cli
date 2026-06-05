@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -23,8 +24,10 @@ var rootCmd = &cobra.Command{
 		var err error
 
 		switch args[0] {
+		case "-h", "--help":
+			_ = cmd.Help()
 		case "-v", "--version":
-			fmt.Printf("Coral version %s\n", Version)
+			fmt.Printf("coral version %s\n", strings.TrimPrefix(Version, "v"))
 		case "images":
 			err = imagesCmd.RunE(cmd, args[1:])
 		case "ps":

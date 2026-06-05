@@ -15,7 +15,7 @@ var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print the Coral version",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("Coral version %s\n", Version)
+		fmt.Printf("coral version %s\n", strings.TrimPrefix(Version, "v"))
 	},
 }
 
