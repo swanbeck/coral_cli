@@ -31,10 +31,6 @@ var rootCmd = &cobra.Command{
 			_ = cmd.Help()
 		case "-v", "--version":
 			fmt.Printf("coral version %s\n", strings.TrimPrefix(Version, "v"))
-		// case "images":
-		// 	err = imagesCmd.RunE(cmd, args[1:])
-		// case "ps":
-		// 	err = psCmd.RunE(cmd, args[1:])
 		default:
 			err = runDockerCommand(args...)
 		}
