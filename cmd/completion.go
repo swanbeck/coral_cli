@@ -56,11 +56,14 @@ __coral_passthrough() {
     if [[ -n "$rt_fn" ]] && declare -f "$rt_fn" >/dev/null 2>&1; then
         local _w="${COMP_WORDS[0]}"
         local _line="$COMP_LINE"
+        local _point="$COMP_POINT"
         COMP_WORDS[0]="$rt"
         COMP_LINE="${rt}${COMP_LINE#"${_w}"}"
+        COMP_POINT=$(( COMP_POINT - ${#_w} + ${#rt} ))
         "$rt_fn" "$@"
         COMP_WORDS[0]="$_w"
         COMP_LINE="$_line"
+        COMP_POINT="$_point"
     fi
 }
 
