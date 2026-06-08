@@ -84,9 +84,7 @@ func parseRuntimeCompletion(out []byte) ([]string, cobra.ShellCompDirective) {
 	return completions, directive
 }
 
-// printRuntimeCommands appends a "Runtime Commands (<binary>):" section to
-// the root help output listing commands from the active container runtime that
-// are not already provided as first-class coral commands.
+// prints runtime commands provided by the underlying runtime that are not overloaded by coral subcommands; invoked as part of the root help output
 func printRuntimeCommands(cmd *cobra.Command) {
 	rt := runtime.Current.Binary
 	out, _ := exec.Command(rt, "__complete", "--", "").Output()
@@ -126,7 +124,7 @@ func printRuntimeCommands(cmd *cobra.Command) {
 
 	w := cmd.OutOrStdout()
 	title := strings.ToUpper(rt[:1]) + rt[1:]
-	fmt.Fprintf(w, "\n%s Commands (%s):\n", title, rt)
+	fmt.Fprintf(w, "\n%s Commands:\n", title)
 	for _, e := range entries {
 		if e.desc != "" {
 			fmt.Fprintf(w, "  %-*s  %s\n", maxLen, e.name, e.desc)
@@ -134,15 +132,66 @@ func printRuntimeCommands(cmd *cobra.Command) {
 			fmt.Fprintf(w, "  %s\n", e.name)
 		}
 	}
-	fmt.Fprintln(w)
 }
 
 func init() {
-	// Append the active runtime's command list to the root help output.
-	defaultHelp := rootCmd.HelpFunc()
 	rootCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
-		defaultHelp(cmd, args)
+		w := cmd.OutOrStdout()
+
+		desc := cmd.Long
+		if desc == "" {
+			desc = cmd.Short
+		}
+		if desc != "" {
+			fmt.Fprintln(w, strings.TrimRight(desc, " \t\n"))
+			fmt.Fprintln(w)
+		}
+
+		fmt.Fprintf(w, "Usage:\n  %s\n", cmd.UseLine())
+		if cmd.HasAvailableSubCommands() {
+			fmt.Fprintf(w, "  %s [command]\n", cmd.CommandPath())
+		}
+		if len(cmd.Aliases) > 0 {
+			fmt.Fprintf(w, "\nAliases:\n  %s\n", cmd.NameAndAliases())
+		}
+		if cmd.HasExample() {
+			fmt.Fprintf(w, "\nExamples:\n%s\n", cmd.Example)
+		}
+
+		if cmd.HasAvailableSubCommands() {
+			nameWidth := 0
+			for _, c := range cmd.Commands() {
+				if (c.IsAvailableCommand() || c.Name() == "help") && len(c.Name()) > nameWidth {
+					nameWidth = len(c.Name())
+				}
+			}
+			fmt.Fprintln(w, "\nNative Commands:")
+			for _, c := range cmd.Commands() {
+				if c.IsAvailableCommand() || c.Name() == "help" {
+					fmt.Fprintf(w, "  %-*s  %s\n", nameWidth, c.Name(), c.Short)
+				}
+			}
+		}
+
 		printRuntimeCommands(cmd)
+
+		if cmd.HasAvailableLocalFlags() {
+			fmt.Fprintf(w, "\nFlags:\n%s\n", strings.TrimRight(cmd.LocalFlags().FlagUsages(), " \t\n"))
+		}
+		if cmd.HasAvailableInheritedFlags() {
+			fmt.Fprintf(w, "\nGlobal Flags:\n%s\n", strings.TrimRight(cmd.InheritedFlags().FlagUsages(), " \t\n"))
+		}
+		if cmd.HasHelpSubCommands() {
+			fmt.Fprintln(w, "\nAdditional help topics:")
+			for _, c := range cmd.Commands() {
+				if c.IsAdditionalHelpTopicCommand() {
+					fmt.Fprintf(w, "  %-11s  %s\n", c.Name(), c.Short)
+				}
+			}
+		}
+		if cmd.HasAvailableSubCommands() {
+			fmt.Fprintf(w, "\nUse \"%s [command] --help\" for more information about a command.\n", cmd.CommandPath())
+		}
 	})
 
 	// Delegate completion for pass-through subcommands to the active container runtime.

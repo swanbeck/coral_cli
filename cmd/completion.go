@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// bashPassthroughWrapper is appended after Cobra's generated bash completion; captures the Cobra-registered handler, then overrides the `complete` registration with a wrapper that:
+// appended after Cobra's generated bash completion; captures the Cobra-registered handler, then overrides the `complete` registration with a wrapper that:
 //   - delegates to Cobra for coral-native subcommands
 //   - substitutes COMP_WORDS[0] with the active runtime and calls the runtime's own completion function for everything else
 //
