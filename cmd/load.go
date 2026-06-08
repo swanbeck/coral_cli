@@ -60,11 +60,18 @@ func load(filePath, nameOverride string) error {
 
 	fmt.Println(logging.Info(fmt.Sprintf("Loading %s as %s (current platform)", filePath, targetName)))
 
-	skopeoCmd := exec.Command("skopeo", "copy", "oci-archive:"+filePath, runtime.Current.DaemonTransport+targetName)
-	skopeoCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	skopeoCmd.Stdout = os.Stdout
-	skopeoCmd.Stderr = os.Stderr
-	if err := skopeoCmd.Run(); err != nil {
+	dest := runtime.Current.DaemonTransport + targetName
+	var copyCmd *exec.Cmd
+	if runtime.Current.Binary == "podman" {
+		// containers-storage: transport calls unshare internally, which fails when skopeo is run outside Podman's user namespace
+		copyCmd = exec.Command("podman", "unshare", "--", "skopeo", "copy", "oci-archive:"+filePath, dest)
+	} else {
+		copyCmd = exec.Command("skopeo", "copy", "oci-archive:"+filePath, dest)
+	}
+	copyCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	copyCmd.Stdout = os.Stdout
+	copyCmd.Stderr = os.Stderr
+	if err := copyCmd.Run(); err != nil {
 		return fmt.Errorf("skopeo copy: %w", err)
 	}
 

@@ -76,11 +76,17 @@ func save(image, output string, fromRegistry bool) error {
 
 	fmt.Println(logging.Info(fmt.Sprintf("Saving %s → %s", image, output)))
 
-	skopeoCmd := exec.Command("skopeo", "copy", "--all", source, "oci-archive:"+output)
-	skopeoCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	skopeoCmd.Stdout = os.Stdout
-	skopeoCmd.Stderr = os.Stderr
-	if err := skopeoCmd.Run(); err != nil {
+	var saveCmd *exec.Cmd
+	if runtime.Current.Binary == "podman" {
+		// containers-storage: transport calls unshare internally, which fails when skopeo is run outside Podman's user namespace
+		saveCmd = exec.Command("podman", "unshare", "--", "skopeo", "copy", "--all", source, "oci-archive:"+output)
+	} else {
+		saveCmd = exec.Command("skopeo", "copy", "--all", source, "oci-archive:"+output)
+	}
+	saveCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	saveCmd.Stdout = os.Stdout
+	saveCmd.Stderr = os.Stderr
+	if err := saveCmd.Run(); err != nil {
 		return fmt.Errorf("skopeo copy: %w", err)
 	}
 
