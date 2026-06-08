@@ -11,6 +11,7 @@ import (
 
 	"coral_cli/internal/logging"
 	"coral_cli/internal/registry"
+	"coral_cli/internal/runtime"
 )
 
 type EventType int
@@ -164,7 +165,7 @@ func isReady(cs containerState) bool {
 
 // returns normalised state for a container, including exit code and whether it bears the coral.transient label
 func containerStatus(containerID string) containerState {
-	cmd := exec.Command("docker", "inspect",
+	cmd := exec.Command(runtime.Current.Binary, "inspect",
 		"--format", `{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} {{.State.Status}} {{index .Config.Labels "com.docker.compose.service"}} {{.State.ExitCode}} {{index .Config.Labels "coral.transient"}}`,
 		containerID)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -207,7 +208,7 @@ func containerStatus(containerID string) containerState {
 }
 
 func GetContainerIDForService(instanceName, serviceName string) (string, error) {
-	cmd := exec.Command("docker", "ps", "-a",
+	cmd := exec.Command(runtime.Current.Binary, "ps", "-a",
 		"--filter", fmt.Sprintf("label=com.docker.compose.project=%s", instanceName),
 		"--filter", fmt.Sprintf("label=com.docker.compose.service=%s", serviceName),
 		"--filter", "label=com.docker.compose.oneoff=False",
@@ -221,7 +222,7 @@ func GetContainerIDForService(instanceName, serviceName string) (string, error) 
 }
 
 func GetContainerIDsForProject(instanceName string) ([]string, error) {
-	cmd := exec.Command("docker", "ps", "-a",
+	cmd := exec.Command(runtime.Current.Binary, "ps", "-a",
 		"--filter", fmt.Sprintf("label=com.docker.compose.project=%s", instanceName),
 		"--filter", "label=com.docker.compose.oneoff=False",
 		"-q")

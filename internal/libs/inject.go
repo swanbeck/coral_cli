@@ -11,6 +11,7 @@ import (
 
 	"coral_cli/internal/logging"
 	"coral_cli/internal/registry"
+	"coral_cli/internal/runtime"
 )
 
 type libEntry struct {
@@ -130,7 +131,7 @@ func InjectLibraries(containerID string, stagingDirs map[string]string) ([]regis
 	}
 
 	// docker cp into the executor container
-	cpCmd := exec.Command("docker", "cp",
+	cpCmd := exec.Command(runtime.Current.Binary, "cp",
 		tmpDir+"/.",
 		fmt.Sprintf("%s:%s", containerID, importLib))
 	cpCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

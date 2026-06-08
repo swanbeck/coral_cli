@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"coral_cli/internal/logging"
+	"coral_cli/internal/runtime"
 	"coral_cli/internal/util"
 )
 
@@ -59,7 +60,7 @@ func load(filePath, nameOverride string) error {
 
 	fmt.Println(logging.Info(fmt.Sprintf("Loading %s as %s (current platform)", filePath, targetName)))
 
-	skopeoCmd := exec.Command("skopeo", "copy", "oci-archive:"+filePath, "docker-daemon:"+targetName)
+	skopeoCmd := exec.Command("skopeo", "copy", "oci-archive:"+filePath, runtime.Current.DaemonTransport+targetName)
 	skopeoCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	skopeoCmd.Stdout = os.Stdout
 	skopeoCmd.Stderr = os.Stderr

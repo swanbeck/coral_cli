@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"coral_cli/internal/logging"
+	"coral_cli/internal/runtime"
 	"coral_cli/internal/util"
 )
 
@@ -26,7 +27,7 @@ func init() {
 		if len(args) > 0 {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
-		out, err := exec.Command("docker", "images", "--format", "{{.Repository}}:{{.Tag}}").Output()
+		out, err := exec.Command(runtime.Current.Binary, "images", "--format", "{{.Repository}}:{{.Tag}}").Output()
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveError
 		}
@@ -70,7 +71,7 @@ func save(image, output string, fromRegistry bool) error {
 	if fromRegistry {
 		source = "docker://" + image
 	} else {
-		source = "docker-daemon:" + image
+		source = runtime.Current.DaemonTransport + image
 	}
 
 	fmt.Println(logging.Info(fmt.Sprintf("Saving %s → %s", image, output)))

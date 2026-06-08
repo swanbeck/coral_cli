@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"coral_cli/internal/logging"
+	"coral_cli/internal/runtime"
 	"coral_cli/internal/util"
 )
 
@@ -93,6 +94,9 @@ var tailCmd = &cobra.Command{
 }
 
 func tail(all bool, instances, groups, handles []string) error {
+	if err := runtime.Check(); err != nil {
+		return err
+	}
 	// load all metadata
 	metadataList, err := util.LoadAllMetadata()
 	if err != nil {

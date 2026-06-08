@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"coral_cli/internal/runtime"
 )
 
 var imagesCmd = &cobra.Command{
@@ -17,8 +19,11 @@ var imagesCmd = &cobra.Command{
 }
 
 func showCoralImages(args []string) error {
+	if err := runtime.Check(); err != nil {
+		return err
+	}
 	allArgs := append([]string{"images"}, args...)
-	cmd := exec.Command("docker", allArgs...)
+	cmd := exec.Command(runtime.Current.Binary, allArgs...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		panic(err)

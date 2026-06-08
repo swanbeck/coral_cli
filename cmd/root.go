@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"coral_cli/internal/runtime"
 )
 
 var rootCmd = &cobra.Command{
@@ -49,7 +51,10 @@ func Execute() {
 }
 
 func runDockerCommand(args ...string) error {
-	dockerCmd := exec.Command("docker", args...)
+	if err := runtime.Check(); err != nil {
+		return err
+	}
+	dockerCmd := exec.Command(runtime.Current.Binary, args...)
 	dockerCmd.Stdin = os.Stdin
 	dockerCmd.Stdout = os.Stdout
 	dockerCmd.Stderr = os.Stderr
