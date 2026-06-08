@@ -32,7 +32,7 @@ func Check() error {
 		return fmt.Errorf("unsupported CORAL_CONTAINER_RUNTIME=%q: must be \"docker\" or \"podman\"", os.Getenv("CORAL_CONTAINER_RUNTIME"))
 	}
 	if _, err := exec.LookPath(Current.Binary); err != nil {
-		return fmt.Errorf("%s not found in PATH; install %s or set CORAL_CONTAINER_RUNTIME=docker|podman", Current.Binary, Current.Binary)
+		return fmt.Errorf("%s not found in PATH; install %s (https://docs.docker.com/engine/install/ or https://podman.io/docs/installation) or set CORAL_CONTAINER_RUNTIME=docker|podman", Current.Binary, Current.Binary)
 	}
 	return nil
 }

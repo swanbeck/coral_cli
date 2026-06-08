@@ -11,7 +11,7 @@ import (
 
 func CheckSkopeo() error {
 	if _, err := exec.LookPath("skopeo"); err != nil {
-		return fmt.Errorf("skopeo is not installed or not in PATH: %w", err)
+		return fmt.Errorf("skopeo is not installed or not in PATH (it can be installed via apt with `apt-get update && apt-get install skopeo`): %w", err)
 	}
 	return nil
 }
