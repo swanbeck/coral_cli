@@ -84,8 +84,68 @@ func parseRuntimeCompletion(out []byte) ([]string, cobra.ShellCompDirective) {
 	return completions, directive
 }
 
+// printRuntimeCommands appends a "Runtime Commands (<binary>):" section to
+// the root help output listing commands from the active container runtime that
+// are not already provided as first-class coral commands.
+func printRuntimeCommands(cmd *cobra.Command) {
+	rt := runtime.Current.Binary
+	out, _ := exec.Command(rt, "__complete", "--", "").Output()
+	if len(out) == 0 {
+		return
+	}
+
+	native := make(map[string]bool)
+	for _, c := range cmd.Commands() {
+		native[c.Name()] = true
+	}
+
+	type entry struct{ name, desc string }
+	var entries []entry
+	maxLen := 0
+	for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+		if line == "" || strings.HasPrefix(line, ":") || strings.HasPrefix(line, "-") {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 2)
+		name := parts[0]
+		if native[name] {
+			continue
+		}
+		desc := ""
+		if len(parts) == 2 {
+			desc = parts[1]
+		}
+		entries = append(entries, entry{name, desc})
+		if len(name) > maxLen {
+			maxLen = len(name)
+		}
+	}
+	if len(entries) == 0 {
+		return
+	}
+
+	w := cmd.OutOrStdout()
+	title := strings.ToUpper(rt[:1]) + rt[1:]
+	fmt.Fprintf(w, "\n%s Commands (%s):\n", title, rt)
+	for _, e := range entries {
+		if e.desc != "" {
+			fmt.Fprintf(w, "  %-*s  %s\n", maxLen, e.name, e.desc)
+		} else {
+			fmt.Fprintf(w, "  %s\n", e.name)
+		}
+	}
+	fmt.Fprintln(w)
+}
+
 func init() {
-	// delegate completion for pass-through subcommands to the active container runtime (both Docker and Podman are Cobra apps and expose __complete)
+	// Append the active runtime's command list to the root help output.
+	defaultHelp := rootCmd.HelpFunc()
+	rootCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+		defaultHelp(cmd, args)
+		printRuntimeCommands(cmd)
+	})
+
+	// Delegate completion for pass-through subcommands to the active container runtime.
 	rootCmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		completionArgs := make([]string, 0, len(args)+3)
 		completionArgs = append(completionArgs, "__complete", "--")
