@@ -77,6 +77,28 @@ func verify(imageName string, libDir string) error {
 	}
 	fmt.Println(logging.Info(fmt.Sprintf("coral.profile=%q", profile)))
 
+	title := labels["org.opencontainers.image.title"]
+	if title == "" {
+		return fmt.Errorf("missing required label 'org.opencontainers.image.title'")
+	}
+	if !strings.HasPrefix(title, "coral-") {
+		return fmt.Errorf("org.opencontainers.image.title=%q must be prefixed with \"coral-\"", title)
+	}
+	fmt.Println(logging.Info(fmt.Sprintf("org.opencontainers.image.title=%q", title)))
+
+	ociVersion := labels["org.opencontainers.image.version"]
+	coralVersion := labels["coral.version"]
+	if ociVersion == "" {
+		return fmt.Errorf("missing required label 'org.opencontainers.image.version'")
+	}
+	if coralVersion == "" {
+		return fmt.Errorf("missing required label 'coral.version'")
+	}
+	if ociVersion != coralVersion {
+		return fmt.Errorf("label mismatch: org.opencontainers.image.version=%q does not match coral.version=%q", ociVersion, coralVersion)
+	}
+	fmt.Println(logging.Info(fmt.Sprintf("org.opencontainers.image.version=%q (matches coral.version)", ociVersion)))
+
 	libPath, err := readImageEnv(imageName, "CORAL_EXPORT_LIB")
 	if err != nil {
 		return fmt.Errorf("reading CORAL_EXPORT_LIB from image: %w", err)
