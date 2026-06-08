@@ -11,6 +11,7 @@ import (
 
 	"coral_cli/internal/logging"
 	"coral_cli/internal/registry"
+	"coral_cli/internal/runtime"
 )
 
 type EventType int
@@ -164,8 +165,8 @@ func isReady(cs containerState) bool {
 
 // returns normalised state for a container, including exit code and whether it bears the coral.transient label
 func containerStatus(containerID string) containerState {
-	cmd := exec.Command("docker", "inspect",
-		"--format", `{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} {{.State.Status}} {{index .Config.Labels "com.docker.compose.service"}} {{.State.ExitCode}} {{index .Config.Labels "coral.transient"}}`,
+	cmd := exec.Command(runtime.Current.Binary, "inspect",
+		"--format", `{{with .State.Health}}{{if .Status}}{{.Status}}{{else}}none{{end}}{{else}}none{{end}} {{.State.Status}} {{index .Config.Labels "com.docker.compose.service"}} {{.State.ExitCode}} {{index .Config.Labels "coral.transient"}}`,
 		containerID)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	out, err := cmd.Output()
@@ -207,24 +208,34 @@ func containerStatus(containerID string) containerState {
 }
 
 func GetContainerIDForService(instanceName, serviceName string) (string, error) {
-	cmd := exec.Command("docker", "ps", "-a",
+	args := []string{"ps", "-a",
 		"--filter", fmt.Sprintf("label=com.docker.compose.project=%s", instanceName),
 		"--filter", fmt.Sprintf("label=com.docker.compose.service=%s", serviceName),
-		"--filter", "label=com.docker.compose.oneoff=False",
-		"-q")
+	}
+	if runtime.Current.Binary == "docker" {
+		args = append(args, "--filter", "label=com.docker.compose.oneoff=False")
+	}
+	args = append(args, "-q")
+	cmd := exec.Command(runtime.Current.Binary, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(string(out)), nil
+	// ps -a can return multiple IDs (e.g. stopped containers from a prior run); use the first
+	id, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
+	return strings.TrimSpace(id), nil
 }
 
 func GetContainerIDsForProject(instanceName string) ([]string, error) {
-	cmd := exec.Command("docker", "ps", "-a",
+	args := []string{"ps", "-a",
 		"--filter", fmt.Sprintf("label=com.docker.compose.project=%s", instanceName),
-		"--filter", "label=com.docker.compose.oneoff=False",
-		"-q")
+	}
+	if runtime.Current.Binary == "docker" {
+		args = append(args, "--filter", "label=com.docker.compose.oneoff=False")
+	}
+	args = append(args, "-q")
+	cmd := exec.Command(runtime.Current.Binary, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	out, err := cmd.Output()
 	if err != nil {

@@ -25,6 +25,7 @@ import (
 	"coral_cli/internal/libs"
 	"coral_cli/internal/logging"
 	"coral_cli/internal/registry"
+	"coral_cli/internal/runtime"
 	"coral_cli/internal/util"
 )
 
@@ -140,6 +141,10 @@ var launchCmd = &cobra.Command{
 
 func launch(composePath, envFile, handle, group string, detached, kill bool,
 	executorDelay, healthTimeout float32, libDirOverride string, profilesToStart []string, skipVersionCheck bool) error {
+
+	if err := runtime.Check(); err != nil {
+		return err
+	}
 
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
@@ -485,7 +490,7 @@ func createAndStartExecutors(instanceName, composePath string, executorServices 
 	reg *registry.Registry) error {
 
 	createArgs := []string{"compose", "-p", instanceName, "-f", composePath, "--profile", "executors", "create"}
-	createCmd := exec.Command("docker", createArgs...)
+	createCmd := exec.Command(runtime.Current.Binary, createArgs...)
 	createCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	createCmd.Stdout = os.Stdout
 	createCmd.Stderr = os.Stderr
@@ -545,7 +550,7 @@ func createAndStartExecutors(instanceName, composePath string, executorServices 
 	}
 
 	startArgs := append([]string{"compose", "-p", instanceName, "-f", composePath, "start"}, executorServices...)
-	startCmd := exec.Command("docker", startArgs...)
+	startCmd := exec.Command(runtime.Current.Binary, startArgs...)
 	startCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	startCmd.Stdout = os.Stdout
 	startCmd.Stderr = os.Stderr
@@ -591,7 +596,7 @@ func runDetached(ctx context.Context, profiles []string, instanceName, composePa
 			logging.BoldMagenta(profile), len(profilesMap[profile]),
 			logging.BoldMagenta(fmt.Sprintf("%v", profilesMap[profile])))))
 
-		cmd := exec.Command("docker", "compose", "-p", instanceName, "-f", composePath,
+		cmd := exec.Command(runtime.Current.Binary, "compose", "-p", instanceName, "-f", composePath,
 			"--profile", profile, "up", "-d")
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		cmd.Stdout = os.Stdout

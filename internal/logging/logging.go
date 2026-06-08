@@ -11,6 +11,7 @@ import (
 
 	"github.com/fatih/color"
 
+	"coral_cli/internal/runtime"
 	"coral_cli/internal/util"
 )
 
@@ -83,9 +84,9 @@ func TailLogs(containers []util.ContainerInfo, doneChan <-chan struct{}, tailAll
 		go func(c util.ContainerInfo, clr *color.Color) {
 			defer wg.Done()
 
-			cmd := exec.Command("docker", "logs", "-f", c.ID)
+			cmd := exec.Command(runtime.Current.Binary, "logs", "-f", c.ID)
 			if !tailAll {
-				cmd = exec.Command("docker", "logs", "-f", "--since", "0s", "--tail", "0", c.ID)
+				cmd = exec.Command(runtime.Current.Binary, "logs", "-f", "--since", "0s", "--tail", "0", c.ID)
 			}
 			stdout, _ := cmd.StdoutPipe()
 			stderr, _ := cmd.StderrPipe()
@@ -131,7 +132,7 @@ func GetContainerInfo(instanceName string, composePath string) ([]util.Container
 	var containers []util.ContainerInfo
 
 	args := []string{"compose", "-p", instanceName, "-f", composePath, "ps", "-q"}
-	out, err := exec.Command("docker", args...).Output()
+	out, err := exec.Command(runtime.Current.Binary, args...).Output()
 	if err != nil {
 		return containers, fmt.Errorf("failed to get container IDs: %w", err)
 	}
@@ -144,7 +145,7 @@ func GetContainerInfo(instanceName string, composePath string) ([]util.Container
 	prefix := instanceName + "-"
 	suffixRegex := regexp.MustCompile(`-\d+$`)
 	for _, id := range containerIDs {
-		nameOut, err := exec.Command("docker", "inspect", "-f", "{{.Name}}", id).Output()
+		nameOut, err := exec.Command(runtime.Current.Binary, "inspect", "-f", "{{.Name}}", id).Output()
 		if err != nil {
 			return containers, fmt.Errorf("failed to inspect container %s: %w", id, err)
 		}

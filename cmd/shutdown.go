@@ -10,6 +10,7 @@ import (
 	"coral_cli/internal/cleanup"
 	"coral_cli/internal/compose"
 	"coral_cli/internal/logging"
+	"coral_cli/internal/runtime"
 	"coral_cli/internal/util"
 )
 
@@ -90,6 +91,9 @@ var shutdownCmd = &cobra.Command{
 	Use:   "shutdown",
 	Short: "Stops and cleans up Coral instances",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := runtime.Check(); err != nil {
+			return err
+		}
 		if shutdownAll {
 			return shutdownAllInstances(shutdownKill)
 		}

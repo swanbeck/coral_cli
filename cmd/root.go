@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"coral_cli/internal/runtime"
 )
 
 var rootCmd = &cobra.Command{
@@ -28,10 +31,6 @@ var rootCmd = &cobra.Command{
 			_ = cmd.Help()
 		case "-v", "--version":
 			fmt.Printf("coral version %s\n", strings.TrimPrefix(Version, "v"))
-		case "images":
-			err = imagesCmd.RunE(cmd, args[1:])
-		case "ps":
-			err = psCmd.RunE(cmd, args[1:])
 		default:
 			err = runDockerCommand(args...)
 		}
@@ -49,7 +48,10 @@ func Execute() {
 }
 
 func runDockerCommand(args ...string) error {
-	dockerCmd := exec.Command("docker", args...)
+	if err := runtime.Check(); err != nil {
+		return err
+	}
+	dockerCmd := exec.Command(runtime.Current.Binary, args...)
 	dockerCmd.Stdin = os.Stdin
 	dockerCmd.Stdout = os.Stdout
 	dockerCmd.Stderr = os.Stderr
@@ -62,12 +64,149 @@ func runDockerCommand(args ...string) error {
 	return nil
 }
 
+// decodes the output of `runtime __complete` into the completions and directive that Cobra expects from a ValidArgsFunction.
+func parseRuntimeCompletion(out []byte) ([]string, cobra.ShellCompDirective) {
+	directive := cobra.ShellCompDirectiveNoFileComp
+	var completions []string
+	for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+		if strings.HasPrefix(line, ":") {
+			if n, err := strconv.Atoi(line[1:]); err == nil {
+				directive = cobra.ShellCompDirective(n)
+			}
+		} else if line != "" {
+			completions = append(completions, line)
+		}
+	}
+	return completions, directive
+}
+
+// prints runtime commands provided by the underlying runtime that are not overloaded by coral subcommands; invoked as part of the root help output
+func printRuntimeCommands(cmd *cobra.Command) {
+	rt := runtime.Current.Binary
+	out, _ := exec.Command(rt, "__complete", "--", "").Output()
+	if len(out) == 0 {
+		return
+	}
+
+	native := make(map[string]bool)
+	for _, c := range cmd.Commands() {
+		native[c.Name()] = true
+	}
+
+	type entry struct{ name, desc string }
+	var entries []entry
+	maxLen := 0
+	for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+		if line == "" || strings.HasPrefix(line, ":") || strings.HasPrefix(line, "-") {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 2)
+		name := parts[0]
+		if native[name] {
+			continue
+		}
+		desc := ""
+		if len(parts) == 2 {
+			desc = parts[1]
+		}
+		entries = append(entries, entry{name, desc})
+		if len(name) > maxLen {
+			maxLen = len(name)
+		}
+	}
+	if len(entries) == 0 {
+		return
+	}
+
+	w := cmd.OutOrStdout()
+	title := strings.ToUpper(rt[:1]) + rt[1:]
+	fmt.Fprintf(w, "\n%s Commands:\n", title)
+	for _, e := range entries {
+		if e.desc != "" {
+			fmt.Fprintf(w, "  %-*s  %s\n", maxLen, e.name, e.desc)
+		} else {
+			fmt.Fprintf(w, "  %s\n", e.name)
+		}
+	}
+}
+
 func init() {
+	rootCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+		w := cmd.OutOrStdout()
+
+		desc := cmd.Long
+		if desc == "" {
+			desc = cmd.Short
+		}
+		if desc != "" {
+			fmt.Fprintln(w, strings.TrimRight(desc, " \t\n"))
+			fmt.Fprintln(w)
+		}
+
+		fmt.Fprintf(w, "Usage:\n  %s\n", cmd.UseLine())
+		if cmd.HasAvailableSubCommands() {
+			fmt.Fprintf(w, "  %s [command]\n", cmd.CommandPath())
+		}
+		if len(cmd.Aliases) > 0 {
+			fmt.Fprintf(w, "\nAliases:\n  %s\n", cmd.NameAndAliases())
+		}
+		if cmd.HasExample() {
+			fmt.Fprintf(w, "\nExamples:\n%s\n", cmd.Example)
+		}
+
+		if cmd.HasAvailableSubCommands() {
+			nameWidth := 0
+			for _, c := range cmd.Commands() {
+				if (c.IsAvailableCommand() || c.Name() == "help") && len(c.Name()) > nameWidth {
+					nameWidth = len(c.Name())
+				}
+			}
+			fmt.Fprintln(w, "\nNative Commands:")
+			for _, c := range cmd.Commands() {
+				if c.IsAvailableCommand() || c.Name() == "help" {
+					fmt.Fprintf(w, "  %-*s  %s\n", nameWidth, c.Name(), c.Short)
+				}
+			}
+		}
+
+		printRuntimeCommands(cmd)
+
+		if cmd.HasAvailableLocalFlags() {
+			fmt.Fprintf(w, "\nFlags:\n%s\n", strings.TrimRight(cmd.LocalFlags().FlagUsages(), " \t\n"))
+		}
+		if cmd.HasAvailableInheritedFlags() {
+			fmt.Fprintf(w, "\nGlobal Flags:\n%s\n", strings.TrimRight(cmd.InheritedFlags().FlagUsages(), " \t\n"))
+		}
+		if cmd.HasHelpSubCommands() {
+			fmt.Fprintln(w, "\nAdditional help topics:")
+			for _, c := range cmd.Commands() {
+				if c.IsAdditionalHelpTopicCommand() {
+					fmt.Fprintf(w, "  %-11s  %s\n", c.Name(), c.Short)
+				}
+			}
+		}
+		if cmd.HasAvailableSubCommands() {
+			fmt.Fprintf(w, "\nUse \"%s [command] --help\" for more information about a command.\n", cmd.CommandPath())
+		}
+	})
+
+	// Delegate completion for pass-through subcommands to the active container runtime.
+	rootCmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		completionArgs := make([]string, 0, len(args)+3)
+		completionArgs = append(completionArgs, "__complete", "--")
+		completionArgs = append(completionArgs, args...)
+		completionArgs = append(completionArgs, toComplete)
+		out, _ := exec.Command(runtime.Current.Binary, completionArgs...).Output()
+		return parseRuntimeCompletion(out)
+	}
+
 	// commands that do not overload docker commands belong here
 	rootCmd.AddCommand(completionCmd)
 	rootCmd.AddCommand(generateCmd)
 	rootCmd.AddCommand(inspectCmd)
 	rootCmd.AddCommand(launchCmd)
+	rootCmd.AddCommand(loadCmd)
+	rootCmd.AddCommand(saveCmd)
 	rootCmd.AddCommand(shutdownCmd)
 	rootCmd.AddCommand(tailCmd)
 	rootCmd.AddCommand(verifyCmd)

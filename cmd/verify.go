@@ -15,6 +15,7 @@ import (
 
 	"coral_cli/internal/libs"
 	"coral_cli/internal/logging"
+	"coral_cli/internal/runtime"
 )
 
 var verifyLibDir string
@@ -26,7 +27,7 @@ func init() {
 		if len(args) > 0 {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
-		out, err := exec.Command("docker", "images", "--format", "{{.Repository}}:{{.Tag}}").Output()
+		out, err := exec.Command(runtime.Current.Binary, "images", "--format", "{{.Repository}}:{{.Tag}}").Output()
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveError
 		}
@@ -56,7 +57,10 @@ var verifyCmd = &cobra.Command{
 }
 
 func verify(imageName string, libDir string) error {
-	if err := exec.Command("docker", "image", "inspect", imageName).Run(); err != nil {
+	if err := runtime.Check(); err != nil {
+		return err
+	}
+	if err := exec.Command(runtime.Current.Binary, "image", "inspect", imageName).Run(); err != nil {
 		return fmt.Errorf("docker image %q not found locally: %w", imageName, err)
 	}
 
@@ -72,6 +76,28 @@ func verify(imageName string, libDir string) error {
 		return fmt.Errorf("invalid coral.profile=%q; must be one of: drivers, skillsets, executors", profile)
 	}
 	fmt.Println(logging.Info(fmt.Sprintf("coral.profile=%q", profile)))
+
+	title := labels["org.opencontainers.image.title"]
+	if title == "" {
+		return fmt.Errorf("missing required label 'org.opencontainers.image.title'")
+	}
+	if !strings.HasPrefix(title, "coral-") {
+		return fmt.Errorf("org.opencontainers.image.title=%q must be prefixed with \"coral-\"", title)
+	}
+	fmt.Println(logging.Info(fmt.Sprintf("org.opencontainers.image.title=%q", title)))
+
+	ociVersion := labels["org.opencontainers.image.version"]
+	coralVersion := labels["coral.version"]
+	if ociVersion == "" {
+		return fmt.Errorf("missing required label 'org.opencontainers.image.version'")
+	}
+	if coralVersion == "" {
+		return fmt.Errorf("missing required label 'coral.version'")
+	}
+	if ociVersion != coralVersion {
+		return fmt.Errorf("label mismatch: org.opencontainers.image.version=%q does not match coral.version=%q", ociVersion, coralVersion)
+	}
+	fmt.Println(logging.Info(fmt.Sprintf("org.opencontainers.image.version=%q (matches coral.version)", ociVersion)))
 
 	libPath, err := readImageEnv(imageName, "CORAL_EXPORT_LIB")
 	if err != nil {
@@ -97,7 +123,7 @@ func verify(imageName string, libDir string) error {
 
 	uid := uuid.New()
 	probeName := fmt.Sprintf("coral-probe-%x", uid[:4])
-	createCmd := exec.Command("docker", "create", "--name", probeName, imageName)
+	createCmd := exec.Command(runtime.Current.Binary, "create", "--name", probeName, imageName)
 	createCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	createOut, err := createCmd.Output()
 	if err != nil {
@@ -105,12 +131,12 @@ func verify(imageName string, libDir string) error {
 	}
 	containerID := strings.TrimSpace(string(createOut))
 	defer func() {
-		rmCmd := exec.Command("docker", "rm", containerID)
+		rmCmd := exec.Command(runtime.Current.Binary, "rm", containerID)
 		rmCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		rmCmd.Run()
 	}()
 
-	cpCmd := exec.Command("docker", "cp",
+	cpCmd := exec.Command(runtime.Current.Binary, "cp",
 		fmt.Sprintf("%s:%s", containerID, libPath),
 		tmpDir)
 	cpCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -173,7 +199,7 @@ func verify(imageName string, libDir string) error {
 
 // reads an environment variable baked into an image without creating a container
 func readImageEnv(image, varName string) (string, error) {
-	out, err := exec.Command("docker", "inspect", "--format", "{{json .Config.Env}}", image).Output()
+	out, err := exec.Command(runtime.Current.Binary, "inspect", "--format", "{{json .Config.Env}}", image).Output()
 	if err != nil {
 		return "", fmt.Errorf("inspecting image env: %w", err)
 	}

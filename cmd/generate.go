@@ -144,12 +144,9 @@ func generateComponent(name, outputDir string) error {
 // ---------------------------------------------------------------------------
 
 func genEnv() string {
-	return `# TODO: Set BASE_VERSION to the coral-btcpp base image tag you want to build on.
+	return `# TODO: Set VERSION to the coral-btcpp image tag you want to build on.
 # Available tags: https://hub.docker.com/r/swanbeck/coral-btcpp/tags
-BASE_VERSION=v2.1.1
-
-# TODO: Set SELF_VERSION to the version tag for this component's image.
-SELF_VERSION=v2.1.0
+VERSION=2.1.2
 `
 }
 
@@ -157,7 +154,7 @@ func genComposeYAML() string {
 	return `services:
   {{NAME}}:
     # TODO: Update the image name to match your Docker Hub username / registry.
-    image: coral-{{NAME}}:${SELF_VERSION}
+    image: coral-{{NAME}}:${VERSION}
     build:
       context: ./
       dockerfile: docker/Dockerfile
@@ -166,8 +163,7 @@ func genComposeYAML() string {
         - linux/arm64
       target: coral
       args:
-        BASE_VERSION: ${BASE_VERSION}
-        SELF_VERSION: ${SELF_VERSION}
+        VERSION: ${VERSION}
     network_mode: host
     ipc: host
 `
@@ -178,12 +174,12 @@ func genComposeYAML() string {
 // ---------------------------------------------------------------------------
 
 func genDockerfile() string {
-	return `ARG BASE_VERSION=unknown
-FROM swanbeck/coral-btcpp:${BASE_VERSION} AS base
+	return `ARG VERSION=unknown
+FROM swanbeck/coral-btcpp:${VERSION} AS base
 
-ARG SELF_VERSION=unknown
-LABEL org.opencontainers.image.title="Coral {{CLASS}}"
-LABEL org.opencontainers.image.version="${SELF_VERSION}"
+ARG VERSION=unknown
+LABEL org.opencontainers.image.title="coral-{{NAME}}"
+LABEL org.opencontainers.image.version="${VERSION}"
 LABEL org.opencontainers.image.description="TODO: Add a description for your component."
 
 USER root

@@ -15,6 +15,7 @@ import (
 	"coral_cli/internal/inspect"
 	"coral_cli/internal/libs"
 	"coral_cli/internal/logging"
+	"coral_cli/internal/runtime"
 )
 
 var (
@@ -41,7 +42,7 @@ func init() {
 		if len(args) > 0 {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
-		out, err := exec.Command("docker", "images", "--format", "{{.Repository}}:{{.Tag}}").Output()
+		out, err := exec.Command(runtime.Current.Binary, "images", "--format", "{{.Repository}}:{{.Tag}}").Output()
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveError
 		}
@@ -68,6 +69,9 @@ var inspectCmd = &cobra.Command{
 }
 
 func inspectImage(image, format, outputFile string) error {
+	if err := runtime.Check(); err != nil {
+		return err
+	}
 	fmt.Println(logging.Info(fmt.Sprintf("Inspecting %s...", logging.BoldMagenta(image))))
 
 	allLabels, err := libs.GetImageLabels(image)
@@ -126,7 +130,7 @@ func inspectImage(image, format, outputFile string) error {
 
 // extractBehaviors runs coral-inspect inside the image and returns the parsed behavior map
 func extractBehaviors(image string) map[string]json.RawMessage {
-	runCmd := exec.Command("docker", "run", "--rm", "--entrypoint", "/ros_entrypoint.sh", image,
+	runCmd := exec.Command(runtime.Current.Binary, "run", "--rm", "--entrypoint", "/ros_entrypoint.sh", image,
 		"bash", "-c", "LD_LIBRARY_PATH=${CORAL_EXPORT_LIB}/interfaces:${LD_LIBRARY_PATH} coral-inspect")
 	runCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	runCmd.Stderr = os.Stderr

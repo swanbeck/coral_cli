@@ -20,7 +20,7 @@ Just as coral reefs support tremendous biodiversity (25% of marine species while
 Users are referred to the [Coral Examples](https://github.com/swanbeck/coral_examples.git) for examples of practical applications enabled by Coral.
 
 ---
-### Building
+### Installation
 Before beginning, [install Go](https://go.dev/doc/install) on your system.
 
 The easiest way to build and install the Coral CLI on Linux is by using the included [Makefile](./Makefile). Run
@@ -38,6 +38,17 @@ To uninstall, run
 ```
 make uninstall
 ```
+
+#### External depdencies
+Coral relies on the following external dependencies for container management:
+
+1. **[Docker](https://www.docker.com/) or [Podman](https://podman.io/)**: 
+Coral supports using either Docker or Podman as its back-end container runtime. 
+This is controlled via the environment variable `CORAL_CONTAINER_RUNTIME=docker|podman`, which defaults to `docker` if not specified.
+If using Podman, it is recommended to continue using `docker compose` as the Podman compose provider, as Coral relies on compose features that are not supported by `podman-compose`.
+Make sure the socket provided by Podman for integration with Docker APIs is active to enable this: `systemctl --user enable podman.socket`. Users are referred to the [Docker](https://docs.docker.com/engine/install/) and [Podman](https://podman.io/docs/installation) installation instructions.
+
+2. **[Skopeo](https://skopeo.org/)**: Skopeo is used for local image management (primarily by the `save` and `load` commands) due to its excellent support of OCI formats, and particularly multi-arch OCI archives which are not well-supported by the Docker daemon and local image store. It is recommended to install Skopeo via apt: `apt-get update && apt-get install skopeo`.
 
 ---
 ### Component model
@@ -86,7 +97,52 @@ To ensure proper software versioning and compatibility, components should extend
 
 Images are maintained for amd64 and arm64 architectures. The current image generation is v2.1.x, which are compatible with Coral CLI v2.x.x and are based on Ubuntu 22.04 with ROS2 Humble, BT.CPP 4.9.0, and CUDA 12.6.
 
-#### Jetson Support
+#### Building a component
+Coral's back-end container runtime is flexible, so there is not a single correct way to generate and manage images that is universally compatible.
+If building a single-platform image, a simple
+```bash
+docker compose build
+```
+is sufficient.
+If locally building a multi-platform image, you may need to go through some extra steps, such as running
+```bash
+docker run --privileged --rm tonistiigi/binfmt --install all # cross-platform build
+docker run --rm --privileged multiarch/qemu-user-static --reset -p yes # cross-platform execution
+```
+to emulate for cross-building or cross-execution.
+On newer Linux kernels, you may also experience segfaults during code cross-compilation.
+The most reliable "fix" I am aware of for this problem is disabling address space randomization via
+```bash
+sysctl kernel.randomize_va_space=0 # disable ASLR for seg fault avoidance with cross-compilation
+```
+The local Docker image store has limited support for multi-platform images, so you may choose to add the `--push` flag to direct the build artifacts to a registry that does have full multi-platform support.
+You can also build the multi-platform image directly into an OCI image archive via
+```bash
+docker buildx bake \
+    --file compose.yaml \
+    --set *.output=type=oci,dest=coral-<IMAGE_NAME>.tar
+```
+These archives can also be created using Skopeo from registry entries like 
+```bash
+skopeo copy --all \
+    docker://user/coral-<IMAGE_NAME>:<IMAGE_TAG> \
+    oci-archive:coral-<IMAGE_NAME>-<IMAGE_TAG>.tar
+```
+or from local stores (saving from the local Podman store in this example)
+```bash
+skopeo copy --all \
+    containers-storage:coral-<IMAGE_NAME>:<IMAGE_TAG> \
+    oci-archive:coral-<IMAGE_NAME>-<IMAGE_TAG>.tar
+```
+and can be loaded locally (loading to the local Docker daemon in this example)
+```bash
+skopeo copy \
+    oci-archive:coral-<IMAGE_NAME>-<IMAGE_TAG>.tar \
+    docker-daemon:coral-<IMAGE_NAME>:<IMAGE_TAG>
+```
+Based on the user-provided configuration, the `coral save` and `coral load` commands perform these actions for the appropriate container runtime.
+
+#### Jetson support
 Because many libraries using the GPU must be built specially for Jetson devices, the base `coral-cuda` images are not Jetson-compatible
 For any components that are not GPU-accelerated, `coral-base` and `coral-btcpp` are valid base images.
 Special Jetson-compatible CUDA images have not yet been migrated to Coral v2.x.x, but will be hosted on Dockerhub in the near future.
@@ -117,7 +173,7 @@ The skeleton compiles and exports a working `Ping` behavior end-to-end. Every ge
 ```
 cd coral_<name>
 docker compose build
-coral verify coral-<name>:v0.1.0
+coral verify coral-<name>:2.1.2
 ```
 
 ---
@@ -132,19 +188,58 @@ coral verify <image>
 
 The command checks:
 1. **`coral.profile` label** is present and set to `drivers`, `skillsets`, or `executors`
-2. **`CORAL_EXPORT_LIB`** — if set in the image environment:
+2. **`org.opencontainers.image.title`** is present and prefixed with `coral-`
+3. **`org.opencontainers.image.version`** is present and matches the `coral.version` label
+4. **`CORAL_EXPORT_LIB`** — if set in the image environment:
    - The directory exists and has world read+execute permissions (`o+rx`)
    - The directory is non-empty
-3. **Behavior plugin** — if the profile is `skillsets`, at least one `lib*behaviors.so` must be present under `CORAL_EXPORT_LIB`
+5. **Behavior plugin** — if the profile is `skillsets`, at least one `lib*behaviors.so` must be present under `CORAL_EXPORT_LIB`
 
 A successful run prints a check for each step and ends with a success message:
 ```
 [INFO] coral.profile="skillsets"
+[INFO] org.opencontainers.image.title="coral-my_component"
+[INFO] org.opencontainers.image.version="2.1.2" (matches coral.version)
 [INFO] CORAL_EXPORT_LIB=/coral_lib permissions OK (0755)
 [INFO] CORAL_EXPORT_LIB=/coral_lib is populated (2 entries)
 [INFO] Found behavior lib(s): libmy_component_behaviors.so
 [SUCCESS] Image is compliant with Coral's standards
 ```
+
+---
+
+#### `save` — export an image to an OCI archive
+
+`coral save` copies a local image into a multi-arch OCI archive (`.tar`) using Skopeo, preserving all platform variants in the manifest. This is the recommended way to package a Coral component for transfer or offline storage, as the Docker daemon's native `docker save` does not preserve multi-arch manifests.
+
+```
+coral save <image>[:<tag>] [-o <output>] [-r]
+```
+
+The output filename defaults to `<image>-<tag>.tar` derived from the image name. Use `--output` to override.
+
+By default the image is read from the local container store (Docker daemon or Podman storage depending on `CORAL_CONTAINER_RUNTIME`). Pass `--registry` to pull directly from a registry instead — this is required for multi-arch images built with `docker buildx --push` that have not been pulled to the local store.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-o, --output` | derived from image name | Output `.tar` file path |
+| `-r, --registry` | `false` | Pull from registry instead of local store |
+
+---
+
+#### `load` — import an OCI archive into the local store
+
+`coral load` copies an OCI archive produced by `coral save` (or `docker buildx bake`) into the local container store, loading only the variant that matches the current platform.
+
+```
+coral load <file.tar> [-n <name:tag>]
+```
+
+The target image name is read from the `org.opencontainers.image.title` and `org.opencontainers.image.version` labels embedded in the archive (yielding `<title>:<version>`). Use `--name` to override if those labels are absent or you need a different local tag.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-n, --name` | read from archive labels | Override the target `image:tag` |
 
 ---
 
@@ -279,21 +374,8 @@ The default format is markdown. Pass `--format json` for machine-readable output
 
 ---
 
-#### `images` and `ps` — filtered Docker views
-
-`coral images` lists only Docker images whose repository name starts with `coral`:
-
-```
-coral images [<docker images flags>]
-```
-
-`coral ps` lists only running containers whose image starts with `coral`:
-
-```
-coral ps [<docker ps flags>]
-```
-
-All other Docker subcommands are passed through to Docker directly, e.g. `coral pull`, `coral rmi`.
+#### All other comands
+All other subcommands are passed through to the underlying container runtime (docker or podman) directly, e.g. `coral pull`, `coral rmi`.
 
 ---
 ### Citation

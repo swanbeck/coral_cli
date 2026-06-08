@@ -12,6 +12,7 @@ import (
 	"coral_cli/internal/health"
 	"coral_cli/internal/libs"
 	"coral_cli/internal/registry"
+	"coral_cli/internal/runtime"
 	"coral_cli/internal/util"
 )
 
@@ -23,7 +24,7 @@ func StopCompose(instanceName string, composePath string, kill bool, profiles []
 
 	if kill {
 		killArgs := append(args, "kill")
-		killCmd := exec.Command("docker", killArgs...)
+		killCmd := exec.Command(runtime.Current.Binary, killArgs...)
 		killCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		killCmd.Stdout = os.Stdout
 		killCmd.Stderr = os.Stderr
@@ -32,7 +33,7 @@ func StopCompose(instanceName string, composePath string, kill bool, profiles []
 		}
 	}
 
-	downCmd := exec.Command("docker", append(args, "down")...)
+	downCmd := exec.Command(runtime.Current.Binary, append(args, "down")...)
 	downCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	downCmd.Stdout = os.Stdout
 	downCmd.Stderr = os.Stderr

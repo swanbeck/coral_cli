@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"coral_cli/internal/logging"
+	"coral_cli/internal/runtime"
 
 	"github.com/google/uuid"
 )
@@ -30,7 +31,7 @@ func ExtractLibraries(image, name, lib string) (stagingDir string, imageID strin
 
 	uid := uuid.New()
 	probeName := fmt.Sprintf("coral-probe-%x", uid[:4])
-	createCmd := exec.Command("docker", "create", "--name", probeName, image)
+	createCmd := exec.Command(runtime.Current.Binary, "create", "--name", probeName, image)
 	createCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	out, err := createCmd.Output()
 	if err != nil {
@@ -39,7 +40,7 @@ func ExtractLibraries(image, name, lib string) (stagingDir string, imageID strin
 	containerID := strings.TrimSpace(string(out))
 
 	defer func() {
-		rmCmd := exec.Command("docker", "rm", containerID)
+		rmCmd := exec.Command(runtime.Current.Binary, "rm", containerID)
 		rmCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		rmCmd.Run() // best-effort
 	}()
@@ -57,7 +58,7 @@ func ExtractLibraries(image, name, lib string) (stagingDir string, imageID strin
 	}
 
 	// docker cp streams through the socket — no host-path translation needed even when CORAL itself is running inside a container
-	cpCmd := exec.Command("docker", "cp",
+	cpCmd := exec.Command(runtime.Current.Binary, "cp",
 		fmt.Sprintf("%s:%s/.", containerID, libPath), // trailing "/." = copy contents
 		stagingDir)
 	cpCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -74,7 +75,7 @@ func ExtractLibraries(image, name, lib string) (stagingDir string, imageID strin
 
 // inspects a stopped container and returns the value of the named environment variable, or "" if not set
 func readContainerEnv(containerID, varName string) (string, error) {
-	cmd := exec.Command("docker", "inspect",
+	cmd := exec.Command(runtime.Current.Binary, "inspect",
 		"--format", "{{json .Config.Env}}",
 		containerID)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -106,7 +107,7 @@ func GetContainerLabels(containerID string) (map[string]string, error) {
 }
 
 func inspectLabels(dockerObject string) (map[string]string, error) {
-	cmd := exec.Command("docker", "inspect", "--format", "{{json .Config.Labels}}", dockerObject)
+	cmd := exec.Command(runtime.Current.Binary, "inspect", "--format", "{{json .Config.Labels}}", dockerObject)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	out, err := cmd.Output()
 	if err != nil {
@@ -124,7 +125,7 @@ func inspectLabels(dockerObject string) (map[string]string, error) {
 
 // returns the full image digest for the named image, pulling it if absent
 func GetImageID(image string) (string, error) {
-	inspectCmd := exec.Command("docker", "inspect", "--format={{.Id}}", image)
+	inspectCmd := exec.Command(runtime.Current.Binary, "inspect", "--format={{.Id}}", image)
 	inspectCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if out, err := inspectCmd.Output(); err == nil {
 		return strings.TrimSpace(string(out)), nil
@@ -141,14 +142,14 @@ func GetImageID(image string) (string, error) {
 	}
 	tmpFile.Close()
 
-	pullCmd := exec.Command("docker", "compose", "-f", tmpFile.Name(), "pull")
+	pullCmd := exec.Command(runtime.Current.Binary, "compose", "-f", tmpFile.Name(), "pull")
 	pullCmd.Stdout = os.Stdout
 	pullCmd.Stderr = os.Stderr
 	if err := pullCmd.Run(); err != nil {
 		return "", fmt.Errorf("pulling image %s: %w", image, err)
 	}
 
-	inspectCmd = exec.Command("docker", "inspect", "--format={{.Id}}", image)
+	inspectCmd = exec.Command(runtime.Current.Binary, "inspect", "--format={{.Id}}", image)
 	inspectCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	out, err := inspectCmd.Output()
 	if err != nil {
