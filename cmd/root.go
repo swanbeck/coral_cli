@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -67,7 +68,33 @@ func runDockerCommand(args ...string) error {
 	return nil
 }
 
+// decodes the output of `runtime __complete` into the completions and directive that Cobra expects from a ValidArgsFunction.
+func parseRuntimeCompletion(out []byte) ([]string, cobra.ShellCompDirective) {
+	directive := cobra.ShellCompDirectiveNoFileComp
+	var completions []string
+	for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+		if strings.HasPrefix(line, ":") {
+			if n, err := strconv.Atoi(line[1:]); err == nil {
+				directive = cobra.ShellCompDirective(n)
+			}
+		} else if line != "" {
+			completions = append(completions, line)
+		}
+	}
+	return completions, directive
+}
+
 func init() {
+	// delegate completion for pass-through subcommands to the active container runtime (both Docker and Podman are Cobra apps and expose __complete)
+	rootCmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		completionArgs := make([]string, 0, len(args)+3)
+		completionArgs = append(completionArgs, "__complete", "--")
+		completionArgs = append(completionArgs, args...)
+		completionArgs = append(completionArgs, toComplete)
+		out, _ := exec.Command(runtime.Current.Binary, completionArgs...).Output()
+		return parseRuntimeCompletion(out)
+	}
+
 	// commands that do not overload docker commands belong here
 	rootCmd.AddCommand(completionCmd)
 	rootCmd.AddCommand(generateCmd)
