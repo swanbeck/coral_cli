@@ -22,7 +22,7 @@ func init() {
 		if len(args) > 0 {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
-		return nil, cobra.ShellCompDirectiveDefault
+		return []string{"tar"}, cobra.ShellCompDirectiveFilterFileExt
 	}
 }
 
