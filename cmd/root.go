@@ -66,10 +66,17 @@ func runDockerCommand(args ...string) error {
 	if err := runtime.Check(); err != nil {
 		return err
 	}
-	dockerCmd := exec.Command(runtime.Current.Binary, args...)
+	rt := runtime.Current.Binary
+	for _, arg := range args {
+		if arg == "-h" || arg == "--help" {
+			fmt.Fprintf(os.Stdout, "***delegating '%s' to %s***\n\n", args[0], rt)
+			break
+		}
+	}
+	dockerCmd := exec.Command(rt, args...)
 	dockerCmd.Stdin = os.Stdin
-	dockerCmd.Stdout = &replacingWriter{w: os.Stdout, old: runtime.Current.Binary}
-	dockerCmd.Stderr = &replacingWriter{w: os.Stderr, old: runtime.Current.Binary}
+	dockerCmd.Stdout = &replacingWriter{w: os.Stdout, old: rt}
+	dockerCmd.Stderr = &replacingWriter{w: os.Stderr, old: rt}
 
 	if err := dockerCmd.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "coral %v failed: %v\n", args, err)
