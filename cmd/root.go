@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"coral_cli/internal/logging"
 	"coral_cli/internal/runtime"
 )
 
@@ -67,12 +68,7 @@ func runDockerCommand(args ...string) error {
 		return err
 	}
 	rt := runtime.Current.Binary
-	for _, arg := range args {
-		if arg == "-h" || arg == "--help" {
-			fmt.Fprintf(os.Stdout, "***delegating '%s' to %s***\n\n", args[0], rt)
-			break
-		}
-	}
+	fmt.Println(logging.Info(fmt.Sprintf("Delegating '%s' to %s", args[0], rt)))
 	dockerCmd := exec.Command(rt, args...)
 	dockerCmd.Stdin = os.Stdin
 	dockerCmd.Stdout = &replacingWriter{w: os.Stdout, old: rt}
