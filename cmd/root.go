@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strconv"
@@ -11,6 +12,20 @@ import (
 
 	"coral_cli/internal/runtime"
 )
+
+// substitutes the runtime binary name with "coral" in pass-through output so users see consistent branding without being surprised by docker/podman references
+type replacingWriter struct {
+	w   io.Writer
+	old string
+}
+
+func (r *replacingWriter) Write(p []byte) (n int, err error) {
+	cap := strings.ToUpper(r.old[:1]) + r.old[1:]
+	s := strings.ReplaceAll(string(p), cap, "Coral")
+	s = strings.ReplaceAll(s, r.old, "coral")
+	_, err = r.w.Write([]byte(s))
+	return len(p), err
+}
 
 var rootCmd = &cobra.Command{
 	Use:   "coral",
@@ -53,8 +68,8 @@ func runDockerCommand(args ...string) error {
 	}
 	dockerCmd := exec.Command(runtime.Current.Binary, args...)
 	dockerCmd.Stdin = os.Stdin
-	dockerCmd.Stdout = os.Stdout
-	dockerCmd.Stderr = os.Stderr
+	dockerCmd.Stdout = &replacingWriter{w: os.Stdout, old: runtime.Current.Binary}
+	dockerCmd.Stderr = &replacingWriter{w: os.Stderr, old: runtime.Current.Binary}
 
 	if err := dockerCmd.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "coral %v failed: %v\n", args, err)
@@ -119,8 +134,7 @@ func printRuntimeCommands(cmd *cobra.Command) {
 	}
 
 	w := cmd.OutOrStdout()
-	title := strings.ToUpper(rt[:1]) + rt[1:]
-	fmt.Fprintf(w, "\n%s Commands:\n", title)
+	fmt.Fprintf(w, "\nAdditional Commands  (via %s):\n", rt)
 	for _, e := range entries {
 		if e.desc != "" {
 			fmt.Fprintf(w, "  %-*s  %s\n", maxLen, e.name, e.desc)
