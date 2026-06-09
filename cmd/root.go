@@ -169,7 +169,9 @@ func init() {
 			}
 		}
 
-		printRuntimeCommands(cmd)
+		if cmd == rootCmd {
+			printRuntimeCommands(cmd)
+		}
 
 		if cmd.HasAvailableLocalFlags() {
 			fmt.Fprintf(w, "\nFlags:\n%s\n", strings.TrimRight(cmd.LocalFlags().FlagUsages(), " \t\n"))
