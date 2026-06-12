@@ -222,6 +222,7 @@ func init() {
 	// commands that do not overload docker commands belong here
 	rootCmd.AddCommand(completionCmd)
 	rootCmd.AddCommand(generateCmd)
+	rootCmd.AddCommand(healthCmd)
 	rootCmd.AddCommand(inspectCmd)
 	rootCmd.AddCommand(launchCmd)
 	rootCmd.AddCommand(loadCmd)
