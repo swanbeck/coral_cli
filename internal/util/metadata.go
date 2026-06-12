@@ -53,6 +53,9 @@ func LoadAllMetadata() ([]InstanceMetadata, error) {
 
 	files, err := os.ReadDir(dir)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return []InstanceMetadata{}, nil
+		}
 		return nil, fmt.Errorf("reading metadata dir: %w", err)
 	}
 

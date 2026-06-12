@@ -103,7 +103,7 @@ func tail(all bool, instances, groups, handles []string) error {
 		return fmt.Errorf("loading metadata: %w", err)
 	}
 	if len(metadataList) == 0 {
-		fmt.Println("No instances found.")
+		fmt.Println(logging.Warning("No known coral instances to tail."))
 		return nil
 	}
 

@@ -117,7 +117,7 @@ func shutdownAllInstances(kill bool) error {
 	}
 
 	if len(metadataList) == 0 {
-		fmt.Println("No instances found.")
+		fmt.Println(logging.Warning("No known coral instances to shut down."))
 		return nil
 	}
 
