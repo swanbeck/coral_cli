@@ -82,7 +82,7 @@ func runDockerCommand(args ...string) error {
 	return nil
 }
 
-// decodes the output of `runtime __complete` into the completions and directive that Cobra expects from a ValidArgsFunction.
+// decodes the output of `runtime __complete` into the completions and directive that Cobra expects from a ValidArgsFunction
 func parseRuntimeCompletion(out []byte) ([]string, cobra.ShellCompDirective) {
 	directive := cobra.ShellCompDirectiveNoFileComp
 	var completions []string
@@ -221,6 +221,7 @@ func init() {
 
 	// commands that do not overload docker commands belong here
 	rootCmd.AddCommand(completionCmd)
+	rootCmd.AddCommand(extractCmd)
 	rootCmd.AddCommand(generateCmd)
 	rootCmd.AddCommand(healthCmd)
 	rootCmd.AddCommand(inspectCmd)
