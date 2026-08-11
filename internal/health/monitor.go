@@ -14,6 +14,60 @@ import (
 	"coral_cli/internal/runtime"
 )
 
+type Status int
+
+const (
+	StatusHealthy   Status = 0 // all containers ready
+	StatusStarting  Status = 1 // at least one container still initializing; none failed
+	StatusUnhealthy Status = 2 // at least one container failed or exited unexpectedly
+)
+
+// returns the health of all containers for a single compose project
+func InstanceHealth(instanceName string) Status {
+	ids, err := GetContainerIDsForProject(instanceName)
+	if err != nil || len(ids) == 0 {
+		return StatusUnhealthy
+	}
+	return assessContainers(ids)
+}
+
+// returns the aggregate health across all named compose instances (result is worst status among the instances)
+func GroupHealth(instanceNames []string) Status {
+	if len(instanceNames) == 0 {
+		return StatusUnhealthy
+	}
+	worst := StatusHealthy
+	for _, name := range instanceNames {
+		s := InstanceHealth(name)
+		if s > worst {
+			worst = s
+		}
+		if worst == StatusUnhealthy {
+			return StatusUnhealthy
+		}
+	}
+	return worst
+}
+
+// returns the aggregate health of the given container IDs
+func assessContainers(ids []string) Status {
+	worst := StatusHealthy
+	for _, id := range ids {
+		cs := containerStatus(id)
+		switch {
+		case isReady(cs):
+			// healthy, running_no_healthcheck, or transient-exited-0
+		case cs.status == "starting":
+			if StatusStarting > worst {
+				worst = StatusStarting
+			}
+		default:
+			return StatusUnhealthy
+		}
+	}
+	return worst
+}
+
 type EventType int
 
 const (
