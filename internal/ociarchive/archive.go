@@ -102,11 +102,17 @@ type Image struct {
 	// env from the image config, split into key/value
 	Env    map[string]string
 	layers []Descriptor
+	// the index descriptor this image was resolved from, kept so it can be re-emitted verbatim
+	desc Descriptor
 }
 
 // archive is a read-only handle on an oci-archive .tar file
 type Archive struct {
 	path string
+	// member offsets recorded by OpenIndexed; nil for a handle from Open, which scans instead
+	members map[string]memberLoc
+	// small members buffered during the indexing pass, so manifests and configs cost no seek at all
+	cached map[string][]byte
 }
 
 // Open validates that path is an OCI archive and returns a handle on it
@@ -236,6 +242,7 @@ func (a *Archive) resolveImage(desc Descriptor) (Image, error) {
 		Labels:         labels,
 		Env:            env,
 		layers:         mf.Layers,
+		desc:           desc,
 	}, nil
 }
 
@@ -266,8 +273,12 @@ func (a *Archive) readMember(name string) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(rc, maxJSONBlob))
 }
 
-// openMember scans the archive for a named regular-file member and returns a reader positioned at its contents
+// openMember returns a reader over a named regular-file member's contents, seeking straight to it when the archive has been indexed and scanning for it otherwise
 func (a *Archive) openMember(name string) (io.ReadCloser, error) {
+	if a.members != nil {
+		return a.openIndexedMember(name)
+	}
+
 	f, err := os.Open(a.path)
 	if err != nil {
 		return nil, err

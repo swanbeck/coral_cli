@@ -28,6 +28,14 @@ func (r *replacingWriter) Write(p []byte) (n int, err error) {
 	return len(p), err
 }
 
+func brandedWriter(f *os.File, rt string) io.Writer {
+	info, err := f.Stat()
+	if err != nil || info.Mode()&os.ModeCharDevice == 0 {
+		return f
+	}
+	return &replacingWriter{w: f, old: rt}
+}
+
 var rootCmd = &cobra.Command{
 	Use:   "coral",
 	Short: "Coral provides and manages an ecosystem of compositional robotics software",
@@ -68,11 +76,12 @@ func runDockerCommand(args ...string) error {
 		return err
 	}
 	rt := runtime.Current.Binary
-	fmt.Println(logging.Info(fmt.Sprintf("Delegating '%s' to %s", args[0], rt)))
+	// a diagnostic, not output: on stdout it lands in the middle of whatever the delegated command produced
+	fmt.Fprintln(os.Stderr, logging.Info(fmt.Sprintf("Delegating '%s' to %s", args[0], rt)))
 	dockerCmd := exec.Command(rt, args...)
 	dockerCmd.Stdin = os.Stdin
-	dockerCmd.Stdout = &replacingWriter{w: os.Stdout, old: rt}
-	dockerCmd.Stderr = &replacingWriter{w: os.Stderr, old: rt}
+	dockerCmd.Stdout = brandedWriter(os.Stdout, rt)
+	dockerCmd.Stderr = brandedWriter(os.Stderr, rt)
 
 	if err := dockerCmd.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "coral %v failed: %v\n", args, err)
