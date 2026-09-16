@@ -48,7 +48,7 @@ This is controlled via the environment variable `CORAL_CONTAINER_RUNTIME=docker|
 If using Podman, it is recommended to continue using `docker compose` as the Podman compose provider, as Coral relies on compose features that are not supported by `podman-compose`.
 Make sure the socket provided by Podman for integration with Docker APIs is active to enable this: `systemctl --user enable podman.socket`. Users are referred to the [Docker](https://docs.docker.com/engine/install/) and [Podman](https://podman.io/docs/installation) installation instructions.
 
-2. **[Skopeo](https://skopeo.org/)**: Skopeo is used for local image management (primarily by the `save` and `load` commands) due to its excellent support of OCI formats, and particularly multi-arch OCI archives which are not well-supported by the Docker daemon and local image store. It is recommended to install Skopeo via apt: `apt-get update && apt-get install skopeo`.
+2. **[Skopeo](https://skopeo.org/)**: Skopeo is used by the `save` command to write multi-arch OCI archives, which are not well-supported by the Docker daemon and local image store. It is recommended to install Skopeo via apt: `apt-get update && apt-get install skopeo`. It is not needed to load an archive.
 
 ---
 ### Component model
@@ -134,13 +134,9 @@ skopeo copy --all \
     containers-storage:coral-<IMAGE_NAME>:<IMAGE_TAG> \
     oci-archive:coral-<IMAGE_NAME>-<IMAGE_TAG>.tar
 ```
-and can be loaded locally (loading to the local Docker daemon in this example)
-```bash
-skopeo copy \
-    oci-archive:coral-<IMAGE_NAME>-<IMAGE_TAG>.tar \
-    docker-daemon:coral-<IMAGE_NAME>:<IMAGE_TAG>
-```
-Based on the user-provided configuration, the `coral save` and `coral load` commands perform these actions for the appropriate container runtime.
+Based on the user-provided configuration, the `coral save` command performs these actions for the appropriate container runtime.
+
+`coral load` reads such an archive directly, selecting the variant matching the current platform.
 
 #### Jetson support
 Because many libraries using the GPU must be built specially for Jetson devices, the base `coral-cuda` images are not Jetson-compatible
