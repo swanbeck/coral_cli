@@ -22,22 +22,29 @@ func StopCompose(instanceName string, composePath string, kill bool, profiles []
 		args = append(args, "--profile", profile)
 	}
 
+	var killErr error
 	if kill {
 		killArgs := append(args, "kill")
 		killCmd := exec.Command(runtime.Current.Binary, killArgs...)
 		killCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		killCmd.Stdout = os.Stdout
 		killCmd.Stderr = os.Stderr
-		if err := killCmd.Run(); err != nil {
-			return fmt.Errorf("killing compose: %w", err)
-		}
+		killErr = killCmd.Run()
 	}
 
 	downCmd := exec.Command(runtime.Current.Binary, append(args, "down")...)
 	downCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	downCmd.Stdout = os.Stdout
 	downCmd.Stderr = os.Stderr
-	return downCmd.Run()
+	if err := downCmd.Run(); err != nil {
+		if killErr != nil {
+			return fmt.Errorf("killing compose: %w; then bringing it down: %v", killErr, err)
+		}
+		return fmt.Errorf("bringing compose down: %w", err)
+	}
+
+	// down succeeded, sothe containers are stopped and removed, which is all stopCompose promises
+	return nil
 }
 
 // cleans up after a failed launch before instance metadata has been written; intended to be called from deferred functions in the launch path when instanceName is known
