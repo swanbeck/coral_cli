@@ -15,11 +15,12 @@ import (
 )
 
 var (
-	shutdownName   string
-	shutdownHandle string
-	shutdownGroup  string
-	shutdownAll    bool
-	shutdownKill   bool
+	shutdownName    string
+	shutdownHandle  string
+	shutdownGroup   string
+	shutdownAll     bool
+	shutdownKill    bool
+	shutdownTimeout int
 )
 
 func init() {
@@ -30,6 +31,7 @@ func init() {
 	shutdownCmd.Flags().StringVar(&shutdownHandle, "handle", "", "Handle to shut down")
 	shutdownCmd.Flags().BoolVarP(&shutdownAll, "all", "a", false, "Shut down all instances")
 	shutdownCmd.Flags().BoolVar(&shutdownKill, "kill", true, "Forcefully kills instances before removing them")
+	shutdownCmd.Flags().IntVarP(&shutdownTimeout, "timeout", "t", cleanup.DefaultStopTimeout, "Seconds instances are given to exit on their stop signal before being killed, when --kill=false")
 
 	shutdownCmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if toComplete == "" {
@@ -128,7 +130,7 @@ func shutdownAllInstances(kill bool) error {
 			fmt.Printf("Failed to extract profiles for %s: %v\n", meta.Name, err)
 			continue
 		}
-		if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill, profiles); err != nil {
+		if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill, shutdownTimeout, profiles); err != nil {
 			fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
 		}
 		if meta.Detached {
@@ -158,7 +160,7 @@ func shutdownByName(name string, kill bool) error {
 				fmt.Printf("Failed to extract profiles for %s: %v\n", meta.Name, err)
 				continue
 			}
-			if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill, profiles); err != nil {
+			if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill, shutdownTimeout, profiles); err != nil {
 				fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
 			}
 			if meta.Detached {
@@ -189,7 +191,7 @@ func shutdownByHandle(handle string, kill bool) error {
 				fmt.Printf("Failed to extract profiles for %s: %v\n", meta.Name, err)
 				continue
 			}
-			if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill, profiles); err != nil {
+			if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill, shutdownTimeout, profiles); err != nil {
 				fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
 			}
 			if meta.Detached {
@@ -222,7 +224,7 @@ func shutdownByGroup(group string, kill bool) error {
 				fmt.Printf("Failed to extract profiles for %s: %v\n", meta.Name, err)
 				continue
 			}
-			if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill, profiles); err != nil {
+			if err := cleanup.StopCompose(meta.Name, meta.ComposeFile, kill, shutdownTimeout, profiles); err != nil {
 				fmt.Printf("Failed to stop compose for %s: %v\n", meta.Name, err)
 			}
 			if meta.Detached {

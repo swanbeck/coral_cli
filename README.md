@@ -289,6 +289,8 @@ services:
 | `--health-timeout` | `120` | Seconds to wait for health checks to pass before starting executors |
 | `-p, --profile` | all | Launch only the specified profile(s) |
 | `--skip-version-check` | `false` | Skip `coral.version` major-version check |
+| `--kill` | `true` | On exit, kill containers outright; `--kill=false` signals them and waits (see `shutdown`) |
+| `--stop-timeout` | `10` | With `--kill=false`, seconds containers get to exit on their stop signal before being killed |
 
 **Library staging directory:**
 
@@ -336,6 +338,9 @@ coral shutdown -a
 | `-g, --group` | Stop all instances in this group |
 | `-a, --all` | Stop all tracked instances |
 | `--kill` | Forcefully kill containers before removing (default: true) |
+| `-t, --timeout` | With `--kill=false`, seconds containers get to exit on their stop signal before being killed (default: 10) |
+
+With `--kill=false`, containers are sent their stop signal (the image's `STOPSIGNAL`, SIGTERM by default) and given `--timeout` seconds to exit by themselves before they are killed, so a process can clean up — the BT executor halts its tree, letting each running node's `on_halted()` cancel what it started. Any container that had to be killed is reported.
 
 Shutdown reads instance metadata stored in `~/.coral_cli/instances/`. Foreground instances (launched without `-d`) clean up their own metadata when they exit; only detached instances need an explicit `coral shutdown`.
 

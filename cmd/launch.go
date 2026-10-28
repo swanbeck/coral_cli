@@ -36,6 +36,7 @@ var (
 	launchGroup            string
 	launchDetached         bool
 	launchKill             bool
+	launchStopTimeout      int
 	launchExecutorDelay    float32
 	launchProfiles         []string
 	launchLibDir           string
@@ -52,6 +53,7 @@ func init() {
 	launchCmd.Flags().StringVarP(&launchGroup, "group", "g", "coral", "Optional group for this instance")
 	launchCmd.Flags().BoolVarP(&launchDetached, "detached", "d", false, "Launch in detached mode")
 	launchCmd.Flags().BoolVar(&launchKill, "kill", true, "Forcefully kills instances before removing them")
+	launchCmd.Flags().IntVar(&launchStopTimeout, "stop-timeout", cleanup.DefaultStopTimeout, "Seconds instances are given to exit on their stop signal before being killed, when --kill=false")
 	launchCmd.Flags().Float32Var(&launchExecutorDelay, "executor-delay", 0.0, "Additional delay in seconds after health checks pass before starting executors")
 	launchCmd.Flags().StringSliceVarP(&launchProfiles, "profile", "p", []string{}, "List of profiles to launch (drivers, skillsets, executors); if not specified, all profiles will be launched")
 	launchCmd.Flags().StringVar(&launchLibDir, "lib-dir", "", "Override CORAL_LIB path (takes precedence over $CORAL_LIB environment variable)")
@@ -134,12 +136,12 @@ var launchCmd = &cobra.Command{
 	Short: "Launches Coral instances",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return launch(launchComposePath, launchEnvFile, launchHandle, launchGroup,
-			launchDetached, launchKill, launchExecutorDelay, launchHealthTimeout,
+			launchDetached, launchKill, launchStopTimeout, launchExecutorDelay, launchHealthTimeout,
 			launchLibDir, launchProfiles, launchSkipVersionCheck)
 	},
 }
 
-func launch(composePath, envFile, handle, group string, detached, kill bool,
+func launch(composePath, envFile, handle, group string, detached, kill bool, stopTimeout int,
 	executorDelay, healthTimeout float32, libDirOverride string, profilesToStart []string, skipVersionCheck bool) error {
 
 	if err := runtime.Check(); err != nil {
@@ -301,14 +303,14 @@ func launch(composePath, envFile, handle, group string, detached, kill bool,
 		if err := runDetached(dCtx, profiles, instanceName, outputPath, executorDelay, healthTimeout, profilesMap, reg); err != nil {
 			if dCtx.Err() == nil {
 				fmt.Println(logging.Warning(fmt.Sprintf("Launch failed — cleaning up %s...", logging.BoldMagenta(instanceName))))
-				_ = cleanup.StopCompose(instanceName, outputPath, true, profiles)
+				_ = cleanup.StopCompose(instanceName, outputPath, true, stopTimeout, profiles)
 				_ = cleanup.RemoveInstanceFiles(instanceName)
 			}
 			return err
 		}
 		return nil
 	}
-	return runForeground(profiles, instanceName, outputPath, kill, executorDelay, healthTimeout, profilesMap, reg)
+	return runForeground(profiles, instanceName, outputPath, kill, stopTimeout, executorDelay, healthTimeout, profilesMap, reg)
 }
 
 var validProfiles = map[string]bool{"drivers": true, "skillsets": true, "executors": true}
@@ -608,7 +610,7 @@ func runDetached(ctx context.Context, profiles []string, instanceName, composePa
 	return nil
 }
 
-func runForeground(profiles []string, instanceName, composePath string, kill bool,
+func runForeground(profiles []string, instanceName, composePath string, kill bool, stopTimeout int,
 	executorDelay, healthTimeout float32, profilesMap map[string][]string,
 	reg *registry.Registry) error {
 
@@ -621,7 +623,7 @@ func runForeground(profiles []string, instanceName, composePath string, kill boo
 	doCleanup := func() {
 		cleanupOnce.Do(func() {
 			signal.Ignore(syscall.SIGINT, syscall.SIGTERM)
-			if err := cleanup.StopCompose(instanceName, composePath, kill, profiles); err != nil {
+			if err := cleanup.StopCompose(instanceName, composePath, kill, stopTimeout, profiles); err != nil {
 				fmt.Println(logging.Warning(fmt.Sprintf("stopping compose: %v", err)))
 			}
 			if err := cleanup.RemoveInstanceFiles(instanceName); err != nil {

@@ -5,18 +5,23 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 
 	"coral_cli/internal/compose"
 	"coral_cli/internal/health"
 	"coral_cli/internal/libs"
+	"coral_cli/internal/logging"
 	"coral_cli/internal/registry"
 	"coral_cli/internal/runtime"
 	"coral_cli/internal/util"
 )
 
-func StopCompose(instanceName string, composePath string, kill bool, profiles []string) error {
+// seconds a container is given to exit on its stop signal before it is killed, when not killing outright
+const DefaultStopTimeout = 10
+
+func StopCompose(instanceName string, composePath string, kill bool, timeout int, profiles []string) error {
 	args := []string{"compose", "-p", instanceName, "-f", composePath}
 	for _, profile := range profiles {
 		args = append(args, "--profile", profile)
@@ -30,9 +35,24 @@ func StopCompose(instanceName string, composePath string, kill bool, profiles []
 		killCmd.Stdout = os.Stdout
 		killCmd.Stderr = os.Stderr
 		killErr = killCmd.Run()
+	} else {
+		// stop on its own, before down, so the containers still exist to be checked for whether they exited in time
+		stopArgs := append(args, "stop", "-t", strconv.Itoa(timeout))
+		stopCmd := exec.Command(runtime.Current.Binary, stopArgs...)
+		stopCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		stopCmd.Stdout = os.Stdout
+		stopCmd.Stderr = os.Stderr
+		if err := stopCmd.Run(); err != nil {
+			fmt.Printf("Warning: stopping compose: %v\n", err)
+		}
+		reportForcedStops(instanceName, timeout)
 	}
 
-	downCmd := exec.Command(runtime.Current.Binary, append(args, "down")...)
+	downArgs := append(args, "down")
+	if !kill {
+		downArgs = append(downArgs, "-t", strconv.Itoa(timeout))
+	}
+	downCmd := exec.Command(runtime.Current.Binary, downArgs...)
 	downCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	downCmd.Stdout = os.Stdout
 	downCmd.Stderr = os.Stderr
@@ -45,6 +65,28 @@ func StopCompose(instanceName string, composePath string, kill bool, profiles []
 
 	// down succeeded, sothe containers are stopped and removed, which is all stopCompose promises
 	return nil
+}
+
+// warns about each container that had to be killed after its timeout rather than exiting on its stop signal, since cleanup it was meant to do (e.g. halting a behavior tree) did not finish
+func reportForcedStops(instanceName string, timeout int) {
+	containerIDs, err := health.GetContainerIDsForProject(instanceName)
+	if err != nil || len(containerIDs) == 0 {
+		return
+	}
+	inspectArgs := append([]string{"inspect", "--format", "{{.Name}} {{.State.ExitCode}} {{.State.OOMKilled}}"}, containerIDs...)
+	out, err := exec.Command(runtime.Current.Binary, inspectArgs...).Output()
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 3 {
+			continue
+		}
+		if fields[1] == "137" && fields[2] != "true" {
+			fmt.Println(logging.Warning(fmt.Sprintf("%s did not exit within %ds of its stop signal and was killed", strings.TrimPrefix(fields[0], "/"), timeout)))
+		}
+	}
 }
 
 // cleans up after a failed launch before instance metadata has been written; intended to be called from deferred functions in the launch path when instanceName is known
